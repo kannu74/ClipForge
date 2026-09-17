@@ -5,8 +5,8 @@ of truth for where files live on disk.
 
     data/projects/<id>/
         source/       original video (or downloaded YouTube video)
-        transcript/   transcript.json, word-level segments
-        moments/      detected + ranked moment candidates
+        transcript/   transcript.json (word-level segments)
+        moments/      moments.json (detected candidate moments)
         clips/        generated clip candidates (pre-render working files)
         renders/      final rendered exports
         project.json  human-readable manifest mirroring the DB row, for
@@ -29,6 +29,37 @@ def init_project_storage(project_id: str) -> Path:
     for sub in SUBDIRS:
         (base / sub).mkdir(exist_ok=True)
     return base
+
+
+def source_dir(project_id: str) -> Path:
+    return project_dir(project_id) / "source"
+
+
+def find_source_file(project_id: str) -> Path | None:
+    d = source_dir(project_id)
+    if not d.exists():
+        return None
+    candidates = [p for p in d.iterdir() if p.is_file()]
+    return candidates[0] if candidates else None
+
+
+def transcript_path(project_id: str) -> Path:
+    return project_dir(project_id) / "transcript" / "transcript.json"
+
+
+def moments_path(project_id: str) -> Path:
+    return project_dir(project_id) / "moments" / "moments.json"
+
+
+def write_json(path: Path, payload: dict[str, Any]) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, default=str))
+
+
+def read_json(path: Path) -> dict[str, Any] | None:
+    if not path.exists():
+        return None
+    return json.loads(path.read_text())
 
 
 def write_manifest(project_id: str, manifest: dict[str, Any]) -> None:

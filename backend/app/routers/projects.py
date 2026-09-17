@@ -12,6 +12,12 @@ router = APIRouter(prefix="/api/projects", tags=["projects"])
 logger = get_logger("routers.projects")
 
 
+def _project_out(row) -> ProjectOut:
+    has_transcript = storage.transcript_path(row["id"]).exists()
+    has_moments = storage.moments_path(row["id"]).exists()
+    return ProjectOut.from_row(row, has_transcript=has_transcript, has_moments=has_moments)
+
+
 @router.post("", response_model=ProjectOut, status_code=201)
 def create_project(payload: ProjectCreateRequest) -> ProjectOut:
     name = payload.name.strip()
@@ -33,12 +39,12 @@ def create_project(payload: ProjectCreateRequest) -> ProjectOut:
         },
     )
     logger.info("Created project %s (%s)", row["id"], row["name"])
-    return ProjectOut.from_row(row)
+    return _project_out(row)
 
 
 @router.get("", response_model=list[ProjectOut])
 def list_projects() -> list[ProjectOut]:
-    return [ProjectOut.from_row(r) for r in db.list_projects()]
+    return [_project_out(r) for r in db.list_projects()]
 
 
 @router.get("/{project_id}", response_model=ProjectOut)
@@ -48,7 +54,7 @@ def get_project(project_id: str) -> ProjectOut:
         raise NotFoundError(
             "That project doesn't exist.", suggestion="It may have been deleted. Refresh your project list."
         )
-    return ProjectOut.from_row(row)
+    return _project_out(row)
 
 
 @router.delete("/{project_id}", status_code=204, response_model=None)

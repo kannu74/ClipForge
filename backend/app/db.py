@@ -26,6 +26,7 @@ CREATE TABLE IF NOT EXISTS projects (
     status TEXT NOT NULL DEFAULT 'created',  -- created|ingesting|ready|transcribing|analyzing|ranking|rendering|error
     preset_id TEXT,
     settings_json TEXT NOT NULL DEFAULT '{}',
+    metadata_json TEXT NOT NULL DEFAULT '{}',  -- ffprobe-derived: duration, resolution, fps, codecs...
     error_message TEXT,
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL

@@ -1,20 +1,26 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api, ApiError } from "../lib/api";
 import { CONTENT_TYPE_LABELS, type Project } from "../lib/types";
+import SourcePanel from "../components/SourcePanel";
+import TranscriptPanel from "../components/TranscriptPanel";
+import MomentsPanel from "../components/MomentsPanel";
 
 export default function ProjectDetail() {
   const { projectId } = useParams();
   const [project, setProject] = useState<Project | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
-  useEffect(() => {
+  const refresh = useCallback(() => {
     if (!projectId) return;
     api
       .getProject(projectId)
       .then(setProject)
       .catch((err) => setError(err instanceof ApiError ? err.message : "Failed to load project."));
   }, [projectId]);
+
+  useEffect(refresh, [refresh]);
 
   if (error) {
     return (
@@ -40,17 +46,18 @@ export default function ProjectDetail() {
       <p className="mt-1 text-sm text-slate-400">
         {CONTENT_TYPE_LABELS[project.content_type]} · status: {project.status}
       </p>
-
-      <div className="mt-10 rounded-2xl border border-dashed border-surface-border p-10 text-center">
-        <p className="text-slate-300">Video ingestion isn't built yet.</p>
-        <p className="mt-1 text-sm text-slate-500">
-          This is Phase 0 (foundation) -- project creation and storage work, but uploading a
-          video or pasting a YouTube URL comes in Phase 1. Check{" "}
-          <code className="rounded bg-surface-raised px-1 py-0.5 text-xs">
-            DEVELOPMENT_PROGRESS.md
-          </code>{" "}
-          for current status.
+      {project.status === "error" && project.error_message && (
+        <p className="mt-2 rounded-lg border border-red-900 bg-red-950/40 px-3 py-2 text-xs text-red-300">
+          {project.error_message}
         </p>
+      )}
+
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
+        <div className="space-y-6">
+          <SourcePanel project={project} onUpdated={setProject} videoRef={videoRef} />
+          <MomentsPanel project={project} videoRef={videoRef} />
+        </div>
+        <TranscriptPanel project={project} onTranscribed={refresh} />
       </div>
     </div>
   );

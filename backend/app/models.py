@@ -33,6 +33,23 @@ class ProjectCreateRequest(BaseModel):
     content_type: ContentType = ContentType.GENERAL_CREATOR
 
 
+class MediaMetadataOut(BaseModel):
+    duration_seconds: float
+    width: int
+    height: int
+    fps: float
+    video_codec: str | None
+    audio_codec: str | None
+    audio_channels: int | None
+    has_audio: bool
+    file_size_bytes: int
+    aspect_ratio: str
+
+
+class YoutubeIngestRequest(BaseModel):
+    url: str = Field(min_length=1)
+
+
 class ProjectOut(BaseModel):
     id: str
     name: str
@@ -44,9 +61,16 @@ class ProjectOut(BaseModel):
     error_message: str | None
     created_at: str
     updated_at: str
+    metadata: MediaMetadataOut | None = None
+    has_transcript: bool = False
+    has_moments: bool = False
 
     @classmethod
-    def from_row(cls, row) -> "ProjectOut":
+    def from_row(cls, row, *, has_transcript: bool = False, has_moments: bool = False) -> "ProjectOut":
+        import json
+
+        raw_meta = row["metadata_json"] if "metadata_json" in row.keys() else "{}"
+        meta_dict = json.loads(raw_meta) if raw_meta else {}
         return cls(
             id=row["id"],
             name=row["name"],
@@ -58,6 +82,9 @@ class ProjectOut(BaseModel):
             error_message=row["error_message"],
             created_at=row["created_at"],
             updated_at=row["updated_at"],
+            metadata=MediaMetadataOut(**meta_dict) if meta_dict else None,
+            has_transcript=has_transcript,
+            has_moments=has_moments,
         )
 
 
@@ -80,3 +107,57 @@ class HardwareReportOut(BaseModel):
     ollama_reachable: bool
     ollama_models: list[str]
     recommended_quality_mode: str
+
+
+# --- Transcription ---
+
+class TranscriptWordOut(BaseModel):
+    word: str
+    start: float
+    end: float
+    probability: float | None = None
+
+
+class TranscriptSegmentOut(BaseModel):
+    id: int
+    start: float
+    end: float
+    text: str
+    words: list[TranscriptWordOut] = []
+    edited: bool = False
+
+
+class TranscriptOut(BaseModel):
+    model_config = {"protected_namespaces": ()}
+
+    project_id: str
+    language: str | None
+    model_size: str
+    segments: list[TranscriptSegmentOut]
+    created_at: str
+
+
+class SegmentEditRequest(BaseModel):
+    text: str = Field(min_length=0)
+
+
+# --- Moment detection ---
+
+class MomentOut(BaseModel):
+    id: str
+    start: float
+    end: float
+    category: str
+    score: float
+    signals: dict
+    transcript_excerpt: str
+    reason: str
+    llm_enriched: bool
+
+
+class MomentsOut(BaseModel):
+    project_id: str
+    content_type: str
+    moments: list[MomentOut]
+    ollama_used: bool
+    created_at: str
