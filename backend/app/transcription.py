@@ -53,15 +53,32 @@ class TranscriptionEngine(Protocol):
     def transcribe(self, audio_path: Path, model_size: str) -> TranscriptResult: ...
 
 
+_GPU_FAILURE_MARKERS = (
+    "cublas",
+    "cudnn",
+    "cuda",
+    "gpu",
+    "no kernel image",
+    "out of memory",
+)
+
+
+def _is_gpu_runtime_failure(exc: Exception) -> bool:
+    """True when an inference failure is about the GPU/CUDA runtime rather than
+    the audio itself -- e.g. missing cuBLAS/cuDNN DLLs or exhausted VRAM."""
+    return any(marker in str(exc).lower() for marker in _GPU_FAILURE_MARKERS)
+
+
 class FasterWhisperEngine:
     """Real engine, backed by faster-whisper. Loads the model lazily so
     importing this module never requires internet or a downloaded model."""
 
-    _model_cache: dict[str, object] = {}
+    _model_cache: dict[tuple[str, str], object] = {}
 
-    def _get_model(self, model_size: str):
-        if model_size in self._model_cache:
-            return self._model_cache[model_size]
+    def _get_model(self, model_size: str, device: str = "auto"):
+        cache_key = (model_size, device)
+        if cache_key in self._model_cache:
+            return self._model_cache[cache_key]
         try:
             from faster_whisper import WhisperModel
         except ImportError as exc:
@@ -71,7 +88,7 @@ class FasterWhisperEngine:
             ) from exc
 
         try:
-            model = WhisperModel(model_size, device="auto", compute_type="auto")
+            model = WhisperModel(model_size, device=device, compute_type="auto")
         except Exception as exc:
             msg = str(exc).lower()
             if "memory" in msg or "cuda" in msg:
@@ -88,11 +105,10 @@ class FasterWhisperEngine:
                 ),
                 detail=str(exc),
             ) from exc
-        self._model_cache[model_size] = model
+        self._model_cache[cache_key] = model
         return model
 
-    def transcribe(self, audio_path: Path, model_size: str) -> TranscriptResult:
-        model = self._get_model(model_size)
+    def _run(self, model, audio_path: Path, model_size: str) -> TranscriptResult:
         segments_iter, info = model.transcribe(
             str(audio_path),
             word_timestamps=True,
@@ -100,6 +116,8 @@ class FasterWhisperEngine:
             task="transcribe",  # never "translate" -- Hinglish must stay Hinglish
         )
         segments: list[Segment] = []
+        # faster-whisper is lazy: inference (and therefore any CUDA failure)
+        # happens while iterating, not at model construction time.
         for i, seg in enumerate(segments_iter):
             words = [
                 Word(word=w.word.strip(), start=w.start, end=w.end, probability=w.probability)
@@ -107,6 +125,25 @@ class FasterWhisperEngine:
             ]
             segments.append(Segment(id=i, start=seg.start, end=seg.end, text=seg.text.strip(), words=words))
         return TranscriptResult(language=getattr(info, "language", None), model_size=model_size, segments=segments)
+
+    def transcribe(self, audio_path: Path, model_size: str) -> TranscriptResult:
+        device = settings.whisper_device
+        model = self._get_model(model_size, device)
+        try:
+            return self._run(model, audio_path, model_size)
+        except Exception as exc:
+            if device == "cpu" or not _is_gpu_runtime_failure(exc):
+                raise
+            # CLAUDE.md: never crash because the GPU path isn't usable -- fall
+            # back to CPU and say why in plain language.
+            logger.warning(
+                "GPU transcription unavailable (%s). Falling back to CPU, which is slower "
+                "but produces identical output.",
+                exc,
+            )
+            self._model_cache.pop((model_size, device), None)
+            cpu_model = self._get_model(model_size, "cpu")
+            return self._run(cpu_model, audio_path, model_size)
 
 
 def run_transcription(

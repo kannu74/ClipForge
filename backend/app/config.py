@@ -43,6 +43,9 @@ class Settings(BaseSettings):
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     whisper_model_size: str = "base"  # tiny | base | small | medium | large-v3
+    # auto | cuda | cpu -- "auto" prefers the GPU and falls back to CPU if the
+    # CUDA runtime is unusable; set "cpu" to skip the GPU attempt entirely.
+    whisper_device: str = "auto"
     quality_mode: QualityMode = QualityMode.BALANCED
 
     @property
