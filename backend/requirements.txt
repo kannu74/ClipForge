@@ -9,6 +9,19 @@ requests==2.32.3
 python-dotenv==1.0.1
 pytest==8.3.3
 httpx==0.27.2
-yt-dlp==2024.8.6
-faster-whisper==1.0.3
 numpy==1.26.4
+
+# Transcription (local). Model weights download once from Hugging Face on
+# first use of each model size, then work offline.
+faster-whisper==1.2.1
+
+# YouTube download. Left unpinned-above on purpose: YouTube changes often and
+# an old yt-dlp is the #1 cause of "download failed". [default] pulls in
+# yt-dlp-ejs; `deno` provides the JavaScript runtime yt-dlp now needs.
+yt-dlp[default]>=2026.8.19
+deno>=2.4
+
+# Media: a bundled static FFmpeg build (used when FFmpeg isn't installed
+# system-wide) and OpenCV for face detection during smart reframing.
+imageio-ffmpeg==0.6.0
+opencv-python-headless==4.11.0.86

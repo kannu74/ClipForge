@@ -11,12 +11,14 @@ candidates just to hit a quota (spec section 14).
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, field
 
 from app.audio_analysis import EnergyProfile
-from app.boundaries import refine_boundaries
+from app.boundaries import fit_window, padded_times, refine_boundaries
 from app.duration_presets import DurationBounds
 from app.moments import Moment
+from app.titles import heuristic_title
 
 # Deterministic sub-score weights. Documented and tunable in one place
 # rather than scattered magic numbers -- see each _*_score function for
@@ -49,6 +51,20 @@ class RankedClip:
     reason: str
     duration_explanation: str
     llm_enriched: bool
+    virality: int = 0
+    confidence: str = "high"  # "high" = cleared the publishable bar; "low" = backup option
+    start_idx: int = 0
+    end_idx: int = 0
+    title: str = ""
+    extra: dict = field(default_factory=dict)
+
+
+def virality_score(total_score: float) -> int:
+    """Map the raw weighted score onto a 1-99 scale for display. Monotonic,
+    so ordering is unchanged; centred so the publishable threshold (~1.5)
+    lands around 40 and a very strong multi-signal clip lands in the 90s."""
+    v = 99.0 / (1.0 + math.exp(-(total_score - 2.0) / 1.1))
+    return int(max(1, min(99, round(v))))
 
 
 def _hook_score(segments: list, start_idx: int, energy_profile: EnergyProfile) -> float:
@@ -95,9 +111,25 @@ def score_and_refine(
     segments: list,
     energy_profile: EnergyProfile,
     bounds: DurationBounds,
+    media_start: float = 0.0,
+    media_end: float | None = None,
 ) -> RankedClip:
-    refined = refine_boundaries(segments, moment.start_idx, moment.end_idx, energy_profile, bounds)
-    duration = refined.end - refined.start
+    s_idx, e_idx = moment.start_idx, moment.end_idx
+    peak = getattr(moment, "peak_idx", None)
+    if peak is not None and s_idx <= peak <= e_idx:
+        # Re-grow from a tight core (the peak plus directly-adjacent speech)
+        # instead of the detector's coarse window, so the setup/payoff balance
+        # is chosen by fit_window rather than by whatever made the detector's
+        # window long enough.
+        s_idx = e_idx = peak
+        if peak - 1 >= moment.start_idx and segments[peak].start - segments[peak - 1].end < 1.0:
+            s_idx = peak - 1
+        if peak + 1 <= moment.end_idx and segments[peak + 1].start - segments[peak].end < 1.0:
+            e_idx = peak + 1
+    fitted = fit_window(segments, s_idx, e_idx, peak, bounds)
+    refined = refine_boundaries(segments, fitted.start_idx, fitted.end_idx, energy_profile, bounds)
+    start, end = padded_times(segments, refined.start_idx, refined.end_idx, media_start, media_end)
+    duration = end - start
 
     hook = _hook_score(segments, refined.start_idx, energy_profile)
     payoff = _payoff_score(segments, refined.end_idx, energy_profile)
@@ -126,12 +158,28 @@ def score_and_refine(
         reason_bits.append("may need extra context -- opens mid-thought")
     reason = "; ".join(reason_bits) + "."
 
+    dur_reasons = []
+    if fitted.grew:
+        dur_reasons.append("added surrounding setup/aftermath to reach the target length")
+    if fitted.shrank:
+        dur_reasons.append("tightened to stay within the target length")
+    if refined.trimmed_filler:
+        dur_reasons.append("trimmed a filler-only opening for a cleaner start")
+    if refined.extended_for_reaction:
+        dur_reasons.append("extended slightly because the reaction was still going")
+    if duration < bounds.min_seconds:
+        dur_reasons.append("shorter than the preset because there's no more related speech around it")
+    if not dur_reasons:
+        dur_reasons.append("lands naturally within the target range")
+    explanation = f"Recommended duration: {duration:.0f} seconds -- " + ", ".join(dur_reasons) + "."
+
+    total = round(total, 2)
     return RankedClip(
         id=moment.id,
-        start=refined.start,
-        end=refined.end,
+        start=start,
+        end=end,
         category=moment.category,
-        total_score=round(total, 2),
+        total_score=total,
         sub_scores={
             "energy": round(energy_component, 2),
             "text": round(text_component, 2),
@@ -142,8 +190,13 @@ def score_and_refine(
         },
         transcript_excerpt=excerpt,
         reason=reason,
-        duration_explanation=refined.explanation,
+        duration_explanation=explanation,
         llm_enriched=moment.llm_enriched,
+        virality=virality_score(total),
+        confidence="high" if total >= PUBLISHABLE_SCORE_THRESHOLD and not getattr(moment, "low_signal", False) else "low",
+        start_idx=refined.start_idx,
+        end_idx=refined.end_idx,
+        title=heuristic_title(excerpt, moment.category),
     )
 
 
@@ -169,10 +222,17 @@ def select_clips(
     energy_profile: EnergyProfile,
     bounds: DurationBounds,
     requested_count: int,
+    allow_low_confidence: bool = False,
+    media_start: float = 0.0,
+    media_end: float | None = None,
 ) -> ClipSelectionResult:
-    ranked = [score_and_refine(m, segments, energy_profile, bounds) for m in moments]
+    """`allow_low_confidence`: when fewer strong clips exist than requested,
+    fill the remaining slots with the best non-overlapping backups, each
+    explicitly marked confidence="low" (and the message says so) -- never
+    silently presented as equal to the strong ones."""
+    ranked = [score_and_refine(m, segments, energy_profile, bounds, media_start, media_end) for m in moments]
     ranked.sort(key=lambda c: c.total_score, reverse=True)
-    strong = [c for c in ranked if c.total_score >= PUBLISHABLE_SCORE_THRESHOLD]
+    strong = [c for c in ranked if c.confidence == "high"]
 
     def already_overlaps(candidate: RankedClip, chosen: list[RankedClip]) -> bool:
         return any(_overlap_ratio(candidate, c) > OVERLAP_DEDUP_RATIO for c in chosen)
@@ -206,8 +266,27 @@ def select_clips(
             if len(selected) >= requested_count:
                 break
 
+    n_strong = len(selected)
+    if allow_low_confidence and len(selected) < requested_count:
+        for candidate in ranked:
+            if candidate in selected or already_overlaps(candidate, selected):
+                continue
+            candidate.confidence = "low"
+            selected.append(candidate)
+            if len(selected) >= requested_count:
+                break
+
     message = None
-    if len(selected) < requested_count:
+    if allow_low_confidence and n_strong < len(selected):
+        n_backup = len(selected) - n_strong
+        message = (
+            f"{n_strong} strong clip{'s' if n_strong != 1 else ''} found. "
+            f"{n_backup} more {'are' if n_backup != 1 else 'is a'} lower-confidence backup "
+            f"pick{'s' if n_backup != 1 else ''} (marked below) -- review before posting."
+        )
+        if len(selected) < requested_count:
+            message += f" The video only had {len(selected)} distinct sections worth offering."
+    elif len(selected) < requested_count:
         if not strong:
             message = (
                 f"No genuinely strong candidates found (out of {len(ranked)} detected). "

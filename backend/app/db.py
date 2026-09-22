@@ -40,15 +40,25 @@ def _now() -> str:
 
 def get_connection() -> sqlite3.Connection:
     settings.ensure_dirs()
-    conn = sqlite3.connect(settings.db_path)
+    conn = sqlite3.connect(settings.db_path, timeout=30, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA busy_timeout = 30000")
     return conn
 
 
 def init_db() -> None:
-    with get_connection() as conn:
+    conn = get_connection()
+    try:
+        # WAL lets the UI keep reading while a background job writes progress.
+        conn.execute("PRAGMA journal_mode = WAL")
         conn.executescript(SCHEMA)
+        conn.commit()
+    finally:
+        conn.close()
+    from app.jobs import init_jobs_table
+
+    init_jobs_table()
 
 
 @contextmanager

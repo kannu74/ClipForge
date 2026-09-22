@@ -60,6 +60,7 @@ def _detect_gpu() -> GpuInfo:
                 capture_output=True,
                 text=True,
                 timeout=5,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             if out.returncode == 0 and out.stdout.strip():
                 first_line = out.stdout.strip().splitlines()[0]
@@ -98,16 +99,11 @@ def _detect_gpu() -> GpuInfo:
 
 
 def _detect_ffmpeg() -> tuple[bool, str | None]:
-    path = shutil.which("ffmpeg")
-    if not path:
+    from app import tools
+
+    if not tools.ffmpeg_available():
         return False, None
-    try:
-        out = subprocess.run([path, "-version"], capture_output=True, text=True, timeout=5)
-        first_line = out.stdout.splitlines()[0] if out.stdout else None
-        return True, first_line
-    except Exception as exc:  # pragma: no cover
-        logger.warning("ffmpeg version check failed: %s", exc)
-        return True, None
+    return True, tools.ffmpeg_version()
 
 
 def _detect_ollama() -> tuple[bool, list[str]]:

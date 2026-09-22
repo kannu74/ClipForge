@@ -78,6 +78,8 @@ class Moment:
     start_idx: int
     end_idx: int
     llm_enriched: bool = False
+    peak_idx: int | None = None
+    low_signal: bool = False
 
 
 def _textual_signals(text: str, allowed_categories: list[str]) -> dict:
@@ -150,7 +152,12 @@ def detect_moments(
     segments: list,  # transcription.Segment-like: .start .end .text
     energy_profile: EnergyProfile,
     ollama_client: OllamaClient | None = None,
+    min_candidates: int = 0,
+    max_llm_enrichments: int = 15,
 ) -> tuple[list[Moment], bool]:
+    """`min_candidates`: if strong peaks yield fewer candidates than this,
+    add the best remaining (lower-signal) sections, flagged `low_signal`, so
+    ranking has enough material to offer clearly-labelled backup options."""
     if not segments:
         return [], False
 
@@ -226,9 +233,10 @@ def detect_moments(
             start_idx=start_idx,
             end_idx=end_idx,
             llm_enriched=False,
+            peak_idx=peak_idx,
         )
 
-        if ollama_reachable:
+        if ollama_reachable and sum(1 for m in moments if m.llm_enriched) < max_llm_enrichments:
             enrichment = ollama_client.enrich_moment(excerpt, content_type, category)
             if enrichment:
                 ollama_used = True
@@ -243,6 +251,44 @@ def detect_moments(
 
         moments.append(moment)
         claimed_ranges.append((start, end))
+
+    if len(moments) < min_candidates:
+        fallback_order = sorted(range(len(segments)), key=lambda i: per_segment_score[i], reverse=True)
+        default_category = "story" if "story" in allowed_categories else allowed_categories[0]
+        for idx in fallback_order:
+            if len(moments) >= min_candidates:
+                break
+            start_idx, end_idx = _build_window(segments, idx)
+            start, end = segments[start_idx].start, segments[end_idx].end
+            if any((min(end, c1) - max(start, c0)) > 0.3 * max(min(end - start, c1 - c0), 1e-6) for c0, c1 in claimed_ranges):
+                continue
+            window_signals = per_segment_signals[start_idx : end_idx + 1]
+            category = _dominant_category(window_signals, allowed_categories) or default_category
+            excerpt = " ".join(seg.text for seg in segments[start_idx : end_idx + 1]).strip()
+            if len(excerpt.split()) < 4:
+                continue
+            moments.append(
+                Moment(
+                    id=uuid.uuid4().hex[:12],
+                    start=round(start, 2),
+                    end=round(end, 2),
+                    category=category,
+                    score=round(per_segment_score[idx], 2),
+                    signals={
+                        "energy_z": round(per_segment_energy_z[idx], 2),
+                        "keyword_matches": sorted({kw for sig in window_signals for kws in sig["keyword_matches"].values() for kw in kws}),
+                        "exclaims": per_segment_signals[idx]["exclaims"],
+                        "caps_words": per_segment_signals[idx]["caps_words"],
+                    },
+                    transcript_excerpt=excerpt,
+                    reason="Lower-signal section -- included as a backup option, not a detected highlight.",
+                    start_idx=start_idx,
+                    end_idx=end_idx,
+                    peak_idx=idx,
+                    low_signal=True,
+                )
+            )
+            claimed_ranges.append((start, end))
 
     moments.sort(key=lambda m: m.score, reverse=True)
     return moments, ollama_used
@@ -261,4 +307,24 @@ def moment_to_dict(m: Moment) -> dict:
         "start_idx": m.start_idx,
         "end_idx": m.end_idx,
         "llm_enriched": m.llm_enriched,
+        "peak_idx": m.peak_idx,
+        "low_signal": m.low_signal,
     }
+
+
+def moment_from_dict(m: dict) -> Moment:
+    return Moment(
+        id=m["id"],
+        start=m["start"],
+        end=m["end"],
+        category=m["category"],
+        score=m["score"],
+        signals=m.get("signals") or {},
+        transcript_excerpt=m.get("transcript_excerpt", ""),
+        reason=m.get("reason", ""),
+        start_idx=m["start_idx"],
+        end_idx=m["end_idx"],
+        llm_enriched=m.get("llm_enriched", False),
+        peak_idx=m.get("peak_idx"),
+        low_signal=m.get("low_signal", False),
+    )

@@ -28,12 +28,18 @@ def configure_logging(log_dir: Path, level: str = "INFO") -> None:
     root.setLevel(level.upper())
     root.propagate = False
 
+    # Windows consoles default to a legacy code page; never let a Hindi /
+    # Devanagari log line raise an encoding error.
+    try:
+        sys.stdout.reconfigure(errors="replace")  # type: ignore[attr-defined]
+    except Exception:  # pragma: no cover
+        pass
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(fmt)
     root.addHandler(stream_handler)
 
     file_handler = RotatingFileHandler(
-        log_dir / "clipforge.log", maxBytes=5_000_000, backupCount=3
+        log_dir / "clipforge.log", maxBytes=5_000_000, backupCount=3, encoding="utf-8"
     )
     file_handler.setFormatter(fmt)
     root.addHandler(file_handler)

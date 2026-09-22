@@ -38,3 +38,6 @@ Thumbs.db
 .vscode/
 .idea/
 .venv-win/
+
+# Sync scratch (Claude build sessions)
+.sync/

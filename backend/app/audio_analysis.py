@@ -7,18 +7,20 @@ possible"), and it works identically whether or not Ollama is reachable.
 """
 from __future__ import annotations
 
-import shutil
+import json
 import subprocess
 from dataclasses import dataclass
+from pathlib import Path
 
 import numpy as np
 
-from app.errors import ExternalToolMissingError, UnsupportedMediaError
+from app import tools
+from app.errors import UnsupportedMediaError
 from app.logging_config import get_logger
 
 logger = get_logger("audio_analysis")
 
-SAMPLE_RATE = 16000
+SAMPLE_RATE = 8000  # plenty for loudness; halves memory on multi-hour videos
 WINDOW_SECONDS = 0.5  # loudness resolution
 
 
@@ -50,36 +52,59 @@ class EnergyProfile:
 
 
 def compute_energy_profile(audio_path, window_seconds: float = WINDOW_SECONDS) -> EnergyProfile:
-    ffmpeg = shutil.which("ffmpeg")
-    if not ffmpeg:
-        raise ExternalToolMissingError(
-            "FFmpeg isn't installed or isn't on PATH.",
-            suggestion="Install FFmpeg and make sure it's on your system PATH, then try again.",
-        )
-
-    proc = subprocess.run(
+    """Decode audio (any ffmpeg-readable file, including the source video
+    itself) and compute windowed RMS loudness. Streams PCM in chunks so a
+    multi-hour video never has to fit in memory as raw samples."""
+    window_size = max(1, int(SAMPLE_RATE * window_seconds))
+    chunk_bytes = window_size * 4 * 2048  # ~17 min of audio per read at 8 kHz
+    proc = subprocess.Popen(
         [
-            ffmpeg, "-v", "error", "-i", str(audio_path),
-            "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(SAMPLE_RATE),
+            tools.ffmpeg_path(), "-v", "error", "-i", str(audio_path),
+            "-vn", "-f", "f32le", "-acodec", "pcm_f32le", "-ac", "1", "-ar", str(SAMPLE_RATE),
             "pipe:1",
         ],
-        capture_output=True,
-        timeout=600,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        creationflags=tools.SUBPROCESS_FLAGS,
     )
-    if proc.returncode != 0 or not proc.stdout:
-        logger.warning("PCM decode failed for %s: %s", audio_path, proc.stderr[:500])
-        raise UnsupportedMediaError("Couldn't analyze the audio in that video.")
+    rms_parts: list[np.ndarray] = []
+    leftover = np.zeros(0, dtype=np.float32)
+    total_samples = 0
+    assert proc.stdout is not None
+    while True:
+        buf = proc.stdout.read(chunk_bytes)
+        if not buf:
+            break
+        usable = len(buf) - (len(buf) % 4)
+        samples = np.frombuffer(buf[:usable], dtype=np.float32)
+        total_samples += samples.size
+        if leftover.size:
+            samples = np.concatenate([leftover, samples])
+        n = samples.size // window_size
+        if n:
+            block = samples[: n * window_size].reshape(n, window_size)
+            rms_parts.append(np.sqrt(np.mean(np.square(block, dtype=np.float64), axis=1)).astype(np.float32))
+        leftover = samples[n * window_size :].copy()
+    stderr = proc.stderr.read() if proc.stderr else b""
+    proc.wait()
 
-    samples = np.frombuffer(proc.stdout, dtype=np.float32)
-    if samples.size == 0:
-        raise UnsupportedMediaError("That video's audio track appears to be empty.")
+    if proc.returncode != 0 or total_samples == 0:
+        logger.warning("PCM decode failed for %s: %s", audio_path, tools.decode(stderr)[:500])
+        if total_samples == 0:
+            raise UnsupportedMediaError(
+                "Couldn't analyze the audio in that video.",
+                suggestion="The video may have no audio track.",
+            )
+    if leftover.size and not rms_parts:
+        rms_parts.append(np.array([np.sqrt(np.mean(np.square(leftover)))], dtype=np.float32))
 
-    window_size = max(1, int(SAMPLE_RATE * window_seconds))
-    n_windows = max(1, samples.size // window_size)
-    trimmed = samples[: n_windows * window_size].reshape(n_windows, window_size)
-    rms = np.sqrt(np.mean(np.square(trimmed), axis=1))
+    rms = np.concatenate(rms_parts) if rms_parts else np.zeros(1, dtype=np.float32)
+    return profile_from_rms(rms, window_seconds)
+
+
+def profile_from_rms(rms: np.ndarray, window_seconds: float = WINDOW_SECONDS) -> EnergyProfile:
+    rms = np.asarray(rms, dtype=np.float32)
     rms_db = 20 * np.log10(np.clip(rms, 1e-6, None))
-
     return EnergyProfile(
         window_seconds=window_seconds,
         rms=rms,
@@ -87,3 +112,21 @@ def compute_energy_profile(audio_path, window_seconds: float = WINDOW_SECONDS) -
         mean_rms=float(np.mean(rms)),
         std_rms=float(np.std(rms)),
     )
+
+
+def save_profile(profile: EnergyProfile, path: Path) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps({"window_seconds": profile.window_seconds, "rms": [round(float(x), 6) for x in profile.rms]}),
+        encoding="utf-8",
+    )
+
+
+def load_profile(path: Path) -> EnergyProfile | None:
+    if not path.exists():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        return profile_from_rms(np.array(data["rms"], dtype=np.float32), float(data["window_seconds"]))
+    except Exception:
+        return None
