@@ -27,6 +27,7 @@ export default function CaptionPreview({
   captionY,
   fixedFontPx,
   fill,
+  title,
 }: {
   cfg: CaptionSettings;
   sample?: string;
@@ -37,6 +38,7 @@ export default function CaptionPreview({
   captionY?: number;
   fixedFontPx?: number;
   fill?: boolean;
+  title?: string;
 }) {
   const words = sample.split(/\s+/).filter(Boolean);
   const per = Math.max(1, cfg.words_per_line * cfg.max_lines);
@@ -86,6 +88,24 @@ export default function CaptionPreview({
       className="relative overflow-hidden rounded-xl bg-gradient-to-b from-slate-700 to-slate-900"
       style={{ width: fill ? "100%" : width, height, backgroundImage: background ? `url(${background})` : undefined, backgroundSize: "cover", backgroundPosition: "center" }}
     >
+      {title && (
+        <div className="absolute left-1/2 top-[6%] w-[84%] -translate-x-1/2 text-center">
+          <span
+            style={{
+              fontFamily: '"Mukta ExtraBold", sans-serif',
+              fontSize: height * 0.036,
+              lineHeight: 1.35,
+              background: "#fff",
+              color: "#111",
+              padding: `${height * 0.006}px ${height * 0.012}px`,
+              boxDecorationBreak: "clone",
+              WebkitBoxDecorationBreak: "clone",
+            }}
+          >
+            {title}
+          </span>
+        </div>
+      )}
       {cfg.enabled && cfg.style !== "none" && (
         <div
           className="absolute left-1/2 w-[92%] -translate-x-1/2 -translate-y-1/2 text-center"

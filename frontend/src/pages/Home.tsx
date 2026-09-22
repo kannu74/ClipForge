@@ -6,6 +6,7 @@ import {
   CONTENT_TYPE_LABELS,
   DEFAULT_SETTINGS,
   type ContentType,
+  type Preset,
   type ProjectSettings,
   type Project,
 } from "../lib/types";
@@ -62,17 +63,58 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [projects, setProjects] = useState<Project[] | null>(null);
+  const [presets, setPresets] = useState<Preset[]>([]);
+  const [activePreset, setActivePreset] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     api.listProjects().then(setProjects).catch((e) => setError(errorText(e)));
+    api.listPresets().then(setPresets).catch(() => {});
   }, []);
+
+  function applyPreset(p: Preset) {
+    const ps = p.settings as Partial<ProjectSettings>;
+    setSettings({
+      ...DEFAULT_SETTINGS,
+      ...ps,
+      captions: { ...DEFAULT_SETTINGS.captions, ...(ps.captions ?? {}) },
+      reframe: { ...DEFAULT_SETTINGS.reframe, ...(ps.reframe ?? {}), facecam: null },
+      render: { ...DEFAULT_SETTINGS.render, ...(ps.render ?? {}) },
+      range_start: null,
+      range_end: null,
+    } as ProjectSettings);
+    setContentType(p.content_type);
+    setActivePreset(p.id);
+  }
+
+  async function saveAsPreset() {
+    const name = prompt("Name this preset (e.g. “My horror shorts”):");
+    if (!name?.trim()) return;
+    try {
+      const p = await api.createPreset(name.trim(), contentType, settings);
+      setPresets((ps) => [...ps, p]);
+      setActivePreset(p.id);
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
+
+  async function removePreset(p: Preset) {
+    if (!confirm(`Delete the preset “${p.name}”?`)) return;
+    try {
+      await api.deletePreset(p.id);
+      setPresets((ps) => ps.filter((x) => x.id !== p.id));
+    } catch (e) {
+      setError(errorText(e));
+    }
+  }
 
   const urlValid = isYoutubeUrl(url);
   const canStart = !busy && (file !== null || urlValid);
 
   function patch(p: Partial<ProjectSettings>) {
     setSettings((s) => ({ ...s, ...p }));
+    setActivePreset(null);
   }
 
   async function start() {
@@ -221,6 +263,36 @@ export default function Home() {
           </div>
         )}
 
+        {presets.length > 0 && (
+          <div className="mt-6 space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Start from a preset</div>
+            <div className="flex flex-wrap gap-2">
+              {presets.map((p) => (
+                <span
+                  key={p.id}
+                  className={cx(
+                    "group inline-flex items-center gap-1 rounded-full border px-3 py-1 text-sm transition-colors",
+                    activePreset === p.id ? "border-fuchsia-400 bg-fuchsia-500/15 text-white" : "border-surface-border text-slate-300 hover:text-white"
+                  )}
+                >
+                  <button type="button" onClick={() => applyPreset(p)}>
+                    {p.builtin ? "✨ " : ""}
+                    {p.name}
+                  </button>
+                  {!p.builtin && (
+                    <button type="button" onClick={() => removePreset(p)} className="ml-1 hidden text-xs text-slate-500 hover:text-red-300 group-hover:inline" title="Delete preset">
+                      ✕
+                    </button>
+                  )}
+                </span>
+              ))}
+              <button type="button" onClick={saveAsPreset} className="rounded-full border border-dashed border-slate-600 px-3 py-1 text-sm text-slate-400 hover:text-white">
+                ＋ Save current settings
+              </button>
+            </div>
+          </div>
+        )}
+
         <div className="mt-6 space-y-3">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">What kind of video is it?</div>
           <div className="flex flex-wrap gap-2">
@@ -228,7 +300,10 @@ export default function Home() {
               <button
                 key={ct}
                 type="button"
-                onClick={() => setContentType(ct)}
+                onClick={() => {
+                  setContentType(ct);
+                  setActivePreset(null);
+                }}
                 className={cx(
                   "rounded-full border px-3 py-1 text-sm transition-colors",
                   contentType === ct ? "border-accent bg-accent/15 text-white" : "border-surface-border text-slate-400 hover:text-slate-200"

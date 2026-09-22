@@ -53,7 +53,7 @@ export default function HardwareBadge() {
       <span className="text-slate-600">·</span>
       <span>{MODE_LABELS[hw.recommended_quality_mode] ?? hw.recommended_quality_mode}</span>
       {!hw.ffmpeg_available && <span className="text-amber-400">· ffmpeg missing</span>}
-      {!hw.ollama_reachable && <span className="text-amber-400">· Ollama offline</span>}
+      {!hw.ollama_reachable && <span className="text-slate-500" title="Optional: a local LLM for better titles. ClipForge works fully without it.">· LLM off</span>}
     </div>
   );
 }

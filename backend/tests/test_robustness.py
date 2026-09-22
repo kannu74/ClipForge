@@ -89,3 +89,20 @@ def test_cancel_propagates_through_youtube_progress_hook():
     # JobCancelled must not be an Exception, or yt-dlp's generic handlers
     # (and ours) would swallow it and report "download failed".
     assert not issubclass(jobs.JobCancelled, Exception)
+
+
+def test_presets_builtin_and_custom(client):
+    listed = client.get("/api/presets").json()
+    assert any(p["id"] == "builtin-horror" and p["builtin"] for p in listed)
+    made = client.post(
+        "/api/presets",
+        json={"name": "My shorts", "content_type": "gaming",
+              "settings": {"clip_count": 5, "range_start": 99, "reframe": {"mode": "split", "facecam": {"x": 0.1, "y": 0.1, "w": 0.2, "h": 0.2}}}},
+    )
+    assert made.status_code == 201
+    p = made.json()
+    assert "range_start" not in p["settings"] and p["settings"]["reframe"]["facecam"] is None
+    assert client.delete(f"/api/presets/{p['id']}").status_code == 204
+    assert client.delete("/api/presets/builtin-horror").status_code == 400
+    bad = client.post("/api/presets", json={"name": "x", "settings": {"captions": {"style": "nope"}}})
+    assert bad.status_code == 400

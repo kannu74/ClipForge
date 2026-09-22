@@ -24,7 +24,7 @@ On macOS/Linux: `cd backend && python3 -m venv .venv && .venv/bin/pip install -r
 
 - **Input:** YouTube links (videos, lives, shorts) or any video file (MP4, MOV, MKV, WEBM, AVI, …). You can process just part of a long stream; for YouTube, only that part is downloaded.
 - **Clip finding:** audio-energy spikes combined with Hinglish/English reaction and gaming vocabulary, tuned per content type (gaming, horror, funny, reaction, comedy, commentary, storytelling). Clips are fitted to your chosen length (10–20s, 20–35s, 30–60s, 60–90s or custom) with setup before the peak and the payoff after it. Cuts land between words, never mid-word. Each clip gets a 1–99 score, a title and a plain-language “why this clip”. If there aren't enough strong moments, backup picks are clearly marked — nothing is padded silently.
-- **Captions:** six styles — Bold Pop, Karaoke, Clean, Boxed, Horror, Neon — with word-by-word highlighting, hype-word colouring, position, size, words per line, colours and UPPERCASE. Hindi in Devanagari renders correctly. An optional **Roman Hinglish** mode turns “भाई ये क्या है” into “bhai ye kya hai” (transliteration only — words are never translated). An SRT file comes with every clip.
+- **Captions:** six styles — Bold Pop, Karaoke, Clean, Boxed, Horror, Neon — with word-by-word highlighting, hype-word colouring, position, size, words per line, colours and UPPERCASE. Hindi in Devanagari renders correctly. An optional **Roman Hinglish** mode turns “भाई ये क्या है” into “bhai ye kya hai” (transliteration only — words are never translated). An optional hook title can be shown at the top of the clip. An SRT file comes with every clip.
 - **Framing:** 9:16, 1:1, 4:5 or 16:9.
   - **Auto** picks a facecam split, face tracking or a safe full frame.
   - **Facecam split:** webcam on top, gameplay below, captions on the seam.
@@ -34,6 +34,10 @@ On macOS/Linux: `cd backend && python3 -m venv .venv && .venv/bin/pip install -r
   - You can mark the facecam area yourself.
 - **Editing:** trim on a timeline (±0.2s / ±1s nudges or drag handles), fix caption words, change caption style or framing per clip, retitle, cut your own clips from the source, then re-render.
 - **Output:** H.264/AAC MP4s with loudness normalised for Shorts/Reels/TikTok (-14 LUFS) and 1080p or 720p output. Downloads per clip or all at once as a zip. An automatic quality check flags wrong length, silent audio or black frames.
+
+## Presets
+
+One-click starting points on the home screen: Horror Shorts, Gaming Highlights, Funny Moments, Podcast / Talking and Hinglish Reaction. **＋ Save current settings** stores your own.
 
 ## Settings
 

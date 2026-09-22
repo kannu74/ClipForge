@@ -166,6 +166,10 @@ def render_clip(
         # The default "lower" position adapts to the layout (split seam, or just
         # under the video band in full-frame mode); explicit choices are kept.
         y_override=rplan.caption_y if cap_cfg.position == "lower" else None,
+        title=clip.get("title") or "",
+        # In the split layout the top is the facecam panel: keep the title
+        # small and at the very top so it doesn't cover the face.
+        title_top=0.03 if rplan.mode == "split" else 0.07,
     )
     fc = rplan.filter_complex
     if ass_path is not None:

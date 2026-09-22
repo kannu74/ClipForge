@@ -198,6 +198,7 @@ def render_hash(ps: ProjectSettings, clip: dict, transcript_rev: int = 0) -> str
             "words": clip.get("caption_words"),
             "render": ps.render.model_dump(),
             "rev": transcript_rev if not clip.get("caption_words") else 0,
+            "title": clip.get("title", "") if cap.title_overlay else "",
             "v": 1,
         },
         sort_keys=True,

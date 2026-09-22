@@ -49,6 +49,8 @@ export interface CaptionSettings {
   font: string;
   script: CaptionScript;
   emphasize_keywords: boolean;
+  title_overlay: boolean;
+  title_seconds: number;
 }
 
 export interface FacecamRect {
@@ -115,6 +117,8 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
     font: "",
     script: "as_spoken",
     emphasize_keywords: true,
+    title_overlay: false,
+    title_seconds: 3,
   },
   reframe: { aspect: "9:16", mode: "auto", facecam: null, split_ratio: 0.4, facecam_on_top: true, focus_x: 0.5 },
   render: { resolution: 1080, quality: "balanced" },
@@ -311,3 +315,11 @@ export const REFRAME_LABELS: Record<ReframeMode, { label: string; desc: string }
   fill: { label: "Crop", desc: "Fill the frame (fixed position)" },
   original: { label: "Letterbox", desc: "Whole frame with black bars" },
 };
+
+export interface Preset {
+  id: string;
+  name: string;
+  content_type: ContentType;
+  settings: DeepPartial<ProjectSettings>;
+  builtin: boolean;
+}

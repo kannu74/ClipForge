@@ -8,6 +8,7 @@ import type {
   DeepPartial,
   HardwareReport,
   Job,
+  Preset,
   Project,
   ProjectSettings,
   Transcript,
@@ -157,6 +158,11 @@ export const api = {
   clipThumbUrl: (id: string, clipId: string, version?: string) =>
     `${API_URL}/api/projects/${id}/clips/${clipId}/thumbnail${version ? `?v=${encodeURIComponent(version)}` : ""}`,
   clipSrtUrl: (id: string, clipId: string) => `${API_URL}/api/projects/${id}/clips/${clipId}/srt`,
+  listPresets: () => request<Preset[]>("/api/presets"),
+  createPreset: (name: string, content_type: ContentType, settings: DeepPartial<ProjectSettings>) =>
+    request<Preset>("/api/presets", json("POST", { name, content_type, settings })),
+  deletePreset: (id: string) => request<void>(`/api/presets/${id}`, { method: "DELETE" }),
+
   zipUrl: (id: string) => `${API_URL}/api/projects/${id}/clips.zip`,
   fontUrl: (name: string) => `${API_URL}/api/system/fonts/${name}`,
 };

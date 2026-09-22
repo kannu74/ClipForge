@@ -363,6 +363,45 @@ def build_ass(
     return "\n".join(header + events) + "\n"
 
 
+def _wrap_title(text: str, max_chars: int) -> list[str]:
+    words, rows, cur = text.split(), [], ""
+    for w in words:
+        if cur and len(cur) + 1 + len(w) > max_chars:
+            rows.append(cur)
+            cur = w
+        else:
+            cur = f"{cur} {w}".strip()
+    if cur:
+        rows.append(cur)
+    if len(rows) > 3:  # keep it a hook, not a paragraph
+        rows = rows[:3]
+        rows[-1] = rows[-1].rstrip(".,") + "..."
+    return rows
+
+
+def title_events(title: str, cfg: CaptionSettings, width: int, height: int, clip_duration: float, top_y: float) -> tuple[list[str], list[str]]:
+    """ASS style + events for the hook title: dark text on a white box at the
+    top of the frame, for the first `title_seconds` (0 = whole clip)."""
+    text = (to_roman(title) if cfg.script == "roman" else title).strip()
+    if not text:
+        return [], []
+    font = "Mukta ExtraBold"
+    size = max(18, int(round(0.036 * height)))
+    max_chars = max(10, int((width * 0.84) / (0.55 * size)))
+    rows = _wrap_title(text, max_chars)
+    end = clip_duration if cfg.title_seconds <= 0 else min(cfg.title_seconds, clip_duration)
+    style = (
+        f"Style: Title,{font},{size},&H00111111,&H00111111,&H00FFFFFF,&H00FFFFFF,0,0,0,0,100,100,0,0,"
+        f"3,{max(2, int(size * 0.22))},0,8,40,40,20,1"
+    )
+    body = "\\N".join(_escape(r) for r in rows)
+    event = (
+        f"Dialogue: 1,{_ass_time(0)},{_ass_time(end)},Title,,0,0,0,,"
+        f"{{\\an8\\pos({width / 2:.0f},{top_y * height:.0f})\\fad(120,200)}}{body}"
+    )
+    return [style], [event]
+
+
 def build_srt(lines: list[CapLine], clip_duration: float) -> str:
     out = []
     for i, line in enumerate(lines, start=1):
@@ -390,15 +429,25 @@ def write_caption_files(
     ass_path: Path,
     srt_path: Path,
     y_override: float | None = None,
+    title: str = "",
+    title_top: float = 0.06,
 ) -> tuple[Path | None, Path]:
-    """Write <clip>.ass (burn-in, only if captions are enabled) and <clip>.srt
-    (always -- handy for uploading captions separately). UTF-8 explicitly:
-    Windows' default code page can't encode Devanagari."""
+    """Write <clip>.ass (burn-in, only if captions or the hook title are on)
+    and <clip>.srt (always -- handy for uploading captions separately).
+    UTF-8 explicitly: Windows' default code page can't encode Devanagari."""
     cap_words = prepare_words(words, clip_start, clip_end, cfg)
     lines = group_lines(cap_words, cfg, width, height)
     duration = clip_end - clip_start
     srt_path.write_text(build_srt(lines, duration), encoding="utf-8")
-    if not cfg.enabled or cfg.style == "none" or not lines:
+    want_captions = cfg.enabled and cfg.style != "none" and bool(lines)
+    want_title = cfg.title_overlay and bool(title.strip())
+    if not want_captions and not want_title:
         return None, srt_path
-    ass_path.write_text(build_ass(lines, cfg, width, height, duration, y_override), encoding="utf-8-sig")
+    ass = build_ass(lines if want_captions else [], cfg, width, height, duration, y_override)
+    if want_title:
+        t_styles, t_events = title_events(title, cfg, width, height, duration, title_top)
+        head, events = ass.split("[Events]\n", 1)
+        head = head.rstrip("\n") + "\n" + "\n".join(t_styles) + "\n\n"
+        ass = head + "[Events]\n" + events.rstrip("\n") + "\n" + "\n".join(t_events) + "\n"
+    ass_path.write_text(ass, encoding="utf-8-sig")
     return ass_path, srt_path

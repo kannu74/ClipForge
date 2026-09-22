@@ -203,9 +203,30 @@ export function CaptionControls({
             <Toggle checked={value.emphasize_keywords} onChange={(v) => onChange({ emphasize_keywords: v })} label="Colour hype words (insane, clutch, bhoot...)" />
           </div>
         </div>
+        <Field label="Hook title">
+          <div className="flex flex-wrap items-center gap-3">
+            <Toggle
+              checked={value.title_overlay}
+              onChange={(v) => onChange({ title_overlay: v })}
+              label="Show the clip's title at the top"
+            />
+            {value.title_overlay && (
+              <Segmented<number>
+                size="sm"
+                value={value.title_seconds}
+                onChange={(v) => onChange({ title_seconds: v })}
+                options={[
+                  { value: 3, label: "First 3s" },
+                  { value: 5, label: "First 5s" },
+                  { value: 0, label: "Whole clip" },
+                ]}
+              />
+            )}
+          </div>
+        </Field>
         {showPreview && (
           <div className="flex justify-center">
-            <CaptionPreview cfg={value} height={300} />
+            <CaptionPreview cfg={value} height={300} title={value.title_overlay ? "Bhai ye kya ho gaya?!" : undefined} />
           </div>
         )}
       </div>

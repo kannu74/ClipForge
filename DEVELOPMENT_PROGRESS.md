@@ -11,7 +11,7 @@ ClipForge is now a complete, usable app: double-click `ClipForge.bat` → paste 
 **Verified here:**
 - Upload, transcript handling, moment detection, ranking, duration fitting, captions, reframing, rendering, QC, editing and downloads all work end-to-end, through the real API and the real UI (driven with Playwright).
 - The rendered MP4s were inspected frame by frame.
-- 77 automated tests pass on Python 3.10 and 3.11.
+- 78 automated tests pass on Python 3.10 and 3.11.
 
 **Not verifiable here, and the most important thing to check next:**
 - real Whisper transcription quality (especially Hinglish);
@@ -33,7 +33,7 @@ The sandboxes this was built in block youtube.com and huggingface.co and have no
 | 5 — Boundary optimization | **IMPLEMENTED (reworked: sentence units + duration fitting), verified on crafted signals** |
 | 6 — Hinglish captions | **IMPLEMENTED, renders inspected visually (Latin + Devanagari) — needs real-speech judgment** |
 | 7 — Smart reframing | **IMPLEMENTED, split/blur/crop/letterbox inspected visually; face tracking unit-tested — needs real footage** |
-| 8 — Presets | **PARTIAL** — per-project defaults remembered across projects; no named, saveable presets yet |
+| 8 — Presets | **IMPLEMENTED** — 5 built-in presets (Horror Shorts, Gaming Highlights, Funny Moments, Podcast/Talking, Hinglish Reaction) + save/delete your own; last-used settings remembered |
 | 9 — Rendering | **IMPLEMENTED, verified** (x264). NVENC path untested (no GPU here) |
 | 10 — Automated QC | **IMPLEMENTED, verified** (duration, resolution, audio present/silent, black frames) |
 | 11 — Creator review | **IMPLEMENTED, verified via API tests + UI screenshots** |
@@ -145,9 +145,11 @@ Config, logging, typed plain-language errors, hardware detection, SQLite project
 
 **Unverified:** detection robustness on real webcams (lighting, small or partly covered faces), and the tracking feel on real talking-head footage.
 
-## Phase 8 — Presets: PARTIAL
+## Phase 8 — Presets: IMPLEMENTED
 
-Home remembers the last-used settings (clip length/count, captions, framing, language, model). Every project stores its own settings, and every clip can override captions and framing. Not yet built: named presets you can save and reuse ("Horror Shorts", "Podcast"...).
+Built-in presets for the target content (Horror Shorts, Gaming Highlights, Funny Moments, Podcast/Talking, Hinglish Reaction) plus the creator's own saved presets (`presets.py`, `/api/presets`; stored in SQLite, never carrying a source range or a per-video facecam area). Home also remembers the last-used settings. Every project stores its own settings; every clip can override captions/framing.
+
+Also added: an optional **hook title** overlay (the clip's title in a white box at the top, for the first 3s/5s or the whole clip; kept small at the very top in the facecam split so it doesn't cover the face). Verified visually.
 
 ## Phase 9 — Rendering: IMPLEMENTED
 
@@ -216,8 +218,7 @@ Edits mark the render as stale, and **Save & render** queues a re-render. Extend
 ## Known limitations / next tasks
 
 1. **Akshar's real-world run** (checklist above). This is the gate for calling Phases 1–7 done.
-2. Named presets (Phase 8).
-3. Keyword/lexicon and weight tuning from real results (Phase 14 benchmarking).
-4. Face tracking uses one face (the largest). There is no multi-speaker switching yet.
-5. No emoji/sticker overlays, B-roll or auto-zoom effects (OpusClip has these; they're lower priority than clip and caption quality per `CLAUDE.md`).
-6. DaVinci Resolve export (XML/EDL) — Phase 13.
+2. Keyword/lexicon and weight tuning from real results (Phase 14 benchmarking).
+3. Face tracking uses one face (the largest). There is no multi-speaker switching yet.
+4. No emoji/sticker overlays, B-roll or auto-zoom effects (OpusClip has these; they're lower priority than clip and caption quality per `CLAUDE.md`).
+5. DaVinci Resolve export (XML/EDL) — Phase 13.

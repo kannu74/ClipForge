@@ -246,22 +246,41 @@ export default function ClipEditor({
                     onChange={(e) => setTitle(e.target.value)}
                     className="w-full rounded-lg border border-surface-border bg-surface px-3 py-2 text-sm text-slate-100 outline-none focus:border-accent"
                   />
-                  <span className="text-xs text-slate-500">Used as the download file name. Not burned into the video.</span>
+                  <span className="text-xs text-slate-500">
+                    Used as the download file name{cap.title_overlay ? " and shown at the top of the video" : ""}.
+                  </span>
                 </label>
                 <div className="rounded-lg bg-surface p-3 text-xs text-slate-400">
                   <p>{clip.reason}</p>
                   <p className="mt-1">{clip.duration_explanation}</p>
                 </div>
                 <div className="flex justify-center">
-                  <CaptionPreview cfg={cap} sample={sampleText} height={320} background={api.frameUrl(project.id, start + 0.5, 480)} />
+                  <CaptionPreview
+                    cfg={cap}
+                    sample={sampleText}
+                    height={320}
+                    background={api.frameUrl(project.id, start + 0.5, 480)}
+                    title={cap.title_overlay ? title : undefined}
+                  />
                 </div>
+                {!cap.title_overlay && (
+                  <button className="text-xs text-accent underline" onClick={() => setCap((c) => ({ ...c, title_overlay: true }))}>
+                    Show this title at the top of the video
+                  </button>
+                )}
               </div>
             )}
             {tab === "captions" && (
               <div className="space-y-4">
                 <CaptionControls value={cap} onChange={(p) => setCap((c) => ({ ...c, ...p }))} showPreview={false} narrow />
                 <div className="flex justify-center">
-                  <CaptionPreview cfg={cap} sample={sampleText} height={320} background={api.frameUrl(project.id, start + 0.5, 480)} />
+                  <CaptionPreview
+                    cfg={cap}
+                    sample={sampleText}
+                    height={320}
+                    background={api.frameUrl(project.id, start + 0.5, 480)}
+                    title={cap.title_overlay ? title : undefined}
+                  />
                 </div>
                 {capChanged && (
                   <button className="text-xs text-slate-500 underline" onClick={() => setCap(settings.captions)}>

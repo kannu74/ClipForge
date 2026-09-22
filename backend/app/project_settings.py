@@ -37,6 +37,9 @@ class CaptionSettings(BaseModel):
     font: str = ""  # empty = the style's default font
     script: CaptionScript = "as_spoken"
     emphasize_keywords: bool = True
+    # Hook title shown at the top of the clip (the clip's title text).
+    title_overlay: bool = False
+    title_seconds: float = Field(default=3.0, ge=0, le=600)  # 0 = whole clip
 
     @field_validator("text_color", "highlight_color", "outline_color")
     @classmethod
