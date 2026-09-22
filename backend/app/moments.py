@@ -75,6 +75,8 @@ class Moment:
     signals: dict
     transcript_excerpt: str
     reason: str
+    start_idx: int
+    end_idx: int
     llm_enriched: bool = False
 
 
@@ -221,6 +223,8 @@ def detect_moments(
             },
             transcript_excerpt=excerpt,
             reason=reason,
+            start_idx=start_idx,
+            end_idx=end_idx,
             llm_enriched=False,
         )
 
@@ -254,5 +258,7 @@ def moment_to_dict(m: Moment) -> dict:
         "signals": m.signals,
         "transcript_excerpt": m.transcript_excerpt,
         "reason": m.reason,
+        "start_idx": m.start_idx,
+        "end_idx": m.end_idx,
         "llm_enriched": m.llm_enriched,
     }

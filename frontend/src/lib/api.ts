@@ -1,6 +1,9 @@
 import type {
   ApiErrorPayload,
+  Clip,
+  ClipsResult,
   ContentType,
+  DurationPreset,
   HardwareReport,
   Moment,
   MomentsResult,
@@ -89,6 +92,24 @@ export const api = {
 
   detectMoments: (id: string) => request<MomentsResult>(`/api/projects/${id}/detect-moments`, { method: "POST" }),
   getMoments: (id: string) => request<MomentsResult>(`/api/projects/${id}/moments`),
+
+  generateClips: (
+    id: string,
+    count: number,
+    durationPreset: DurationPreset,
+    custom?: { min: number; max: number; preferred?: number }
+  ) =>
+    request<ClipsResult>(
+      `/api/projects/${id}/generate-clips`,
+      jsonInit("POST", {
+        count,
+        duration_preset: durationPreset,
+        custom_min_seconds: custom?.min,
+        custom_max_seconds: custom?.max,
+        custom_preferred_seconds: custom?.preferred,
+      })
+    ),
+  getClips: (id: string) => request<ClipsResult>(`/api/projects/${id}/clips`),
 };
 
-export type { Moment };
+export type { Moment, Clip };

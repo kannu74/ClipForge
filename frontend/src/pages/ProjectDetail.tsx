@@ -5,6 +5,7 @@ import { CONTENT_TYPE_LABELS, type Project } from "../lib/types";
 import SourcePanel from "../components/SourcePanel";
 import TranscriptPanel from "../components/TranscriptPanel";
 import MomentsPanel from "../components/MomentsPanel";
+import ClipsPanel from "../components/ClipsPanel";
 
 export default function ProjectDetail() {
   const { projectId } = useParams();
@@ -56,6 +57,7 @@ export default function ProjectDetail() {
         <div className="space-y-6">
           <SourcePanel project={project} onUpdated={setProject} videoRef={videoRef} />
           <MomentsPanel project={project} videoRef={videoRef} />
+          <ClipsPanel project={project} videoRef={videoRef} />
         </div>
         <TranscriptPanel project={project} onTranscribed={refresh} />
       </div>

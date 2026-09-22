@@ -64,9 +64,10 @@ class ProjectOut(BaseModel):
     metadata: MediaMetadataOut | None = None
     has_transcript: bool = False
     has_moments: bool = False
+    has_clips: bool = False
 
     @classmethod
-    def from_row(cls, row, *, has_transcript: bool = False, has_moments: bool = False) -> "ProjectOut":
+    def from_row(cls, row, *, has_transcript: bool = False, has_moments: bool = False, has_clips: bool = False) -> "ProjectOut":
         import json
 
         raw_meta = row["metadata_json"] if "metadata_json" in row.keys() else "{}"
@@ -85,6 +86,7 @@ class ProjectOut(BaseModel):
             metadata=MediaMetadataOut(**meta_dict) if meta_dict else None,
             has_transcript=has_transcript,
             has_moments=has_moments,
+            has_clips=has_clips,
         )
 
 
@@ -152,6 +154,8 @@ class MomentOut(BaseModel):
     signals: dict
     transcript_excerpt: str
     reason: str
+    start_idx: int
+    end_idx: int
     llm_enriched: bool
 
 
@@ -160,4 +164,38 @@ class MomentsOut(BaseModel):
     content_type: str
     moments: list[MomentOut]
     ollama_used: bool
+    created_at: str
+
+
+# --- Clip ranking (Phase 4/5) ---
+
+class GenerateClipsRequest(BaseModel):
+    count: int = Field(default=5, ge=1, le=50)
+    duration_preset: str = Field(default="standard")  # ultra_short|short|standard|extended|custom
+    custom_min_seconds: float | None = None
+    custom_max_seconds: float | None = None
+    custom_preferred_seconds: float | None = None
+
+
+class ClipOut(BaseModel):
+    id: str
+    start: float
+    end: float
+    category: str
+    total_score: float
+    sub_scores: dict
+    transcript_excerpt: str
+    reason: str
+    duration_explanation: str
+    llm_enriched: bool
+
+
+class ClipsOut(BaseModel):
+    project_id: str
+    content_type: str
+    duration_preset: str
+    requested_count: int
+    considered_count: int
+    message: str | None
+    clips: list[ClipOut]
     created_at: str

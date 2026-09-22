@@ -46,6 +46,7 @@ export interface Project {
   metadata: MediaMetadata | null;
   has_transcript: boolean;
   has_moments: boolean;
+  has_clips: boolean;
 }
 
 export interface GpuInfo {
@@ -115,5 +116,46 @@ export interface MomentsResult {
   content_type: string;
   moments: Moment[];
   ollama_used: boolean;
+  created_at: string;
+}
+
+export type DurationPreset = "ultra_short" | "short" | "standard" | "extended" | "custom";
+
+export const DURATION_PRESET_LABELS: Record<DurationPreset, string> = {
+  ultra_short: "Ultra Short (10-20s)",
+  short: "Short (20-35s)",
+  standard: "Standard (30-60s)",
+  extended: "Extended (60-90s)",
+  custom: "Custom",
+};
+
+export interface Clip {
+  id: string;
+  start: number;
+  end: number;
+  category: string;
+  total_score: number;
+  sub_scores: {
+    energy: number;
+    text: number;
+    hook: number;
+    payoff: number;
+    standalone: number;
+    duration_fit: number;
+  };
+  transcript_excerpt: string;
+  reason: string;
+  duration_explanation: string;
+  llm_enriched: boolean;
+}
+
+export interface ClipsResult {
+  project_id: string;
+  content_type: string;
+  duration_preset: string;
+  requested_count: number;
+  considered_count: number;
+  message: string | null;
+  clips: Clip[];
   created_at: string;
 }

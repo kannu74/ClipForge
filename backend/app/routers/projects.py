@@ -15,7 +15,8 @@ logger = get_logger("routers.projects")
 def _project_out(row) -> ProjectOut:
     has_transcript = storage.transcript_path(row["id"]).exists()
     has_moments = storage.moments_path(row["id"]).exists()
-    return ProjectOut.from_row(row, has_transcript=has_transcript, has_moments=has_moments)
+    has_clips = storage.clips_path(row["id"]).exists()
+    return ProjectOut.from_row(row, has_transcript=has_transcript, has_moments=has_moments, has_clips=has_clips)
 
 
 @router.post("", response_model=ProjectOut, status_code=201)

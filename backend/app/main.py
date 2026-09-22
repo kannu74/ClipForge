@@ -10,7 +10,7 @@ from app.config import settings
 from app.db import init_db
 from app.errors import ClipForgeError, clipforge_error_handler, unhandled_error_handler
 from app.logging_config import configure_logging, get_logger
-from app.routers import ingest, moments, projects, system, transcription
+from app.routers import clips, ingest, moments, projects, system, transcription
 
 settings.ensure_dirs()
 configure_logging(settings.data_dir / "logs", settings.log_level)
@@ -53,6 +53,7 @@ app.include_router(projects.router)
 app.include_router(ingest.router)
 app.include_router(transcription.router)
 app.include_router(moments.router)
+app.include_router(clips.router)
 
 
 @app.get("/")

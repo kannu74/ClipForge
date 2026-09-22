@@ -2,7 +2,7 @@
 
 Read this before starting any work. Update it after every meaningful milestone, not just at phase boundaries. See `CLAUDE.md` for the working agreement and `docs/PRODUCT_BRIEF.md` for the full original spec.
 
-Last updated: 2026-09-17
+Last updated: 2026-09-22
 
 ## Phase status
 
@@ -12,8 +12,8 @@ Last updated: 2026-09-17
 | 1 — Video ingestion | **COMPLETE** (local upload verified end-to-end; YouTube implemented but network-blocked in this build environment, see below) |
 | 2 — Local transcription | **IMPLEMENTED, orchestration verified — ASR quality NOT verified** (see below, important) |
 | 3 — Intelligent moment detection | **IMPLEMENTED, detection logic verified on real signals — needs real video judgment** |
-| 4 — Clip ranking | NOT STARTED |
-| 5 — Boundary optimization | NOT STARTED (basic windowing exists inside Phase 3, not the full pass) |
+| 4 — Clip ranking | **IMPLEMENTED, scoring/selection logic verified on crafted signals — weights unvalidated against real content** (see below) |
+| 5 — Boundary optimization | **IMPLEMENTED, refinement logic verified on crafted signals — needs real video judgment** (see below) |
 | 6 — Hinglish captions | NOT STARTED |
 | 7 — Smart video editing/reframing | NOT STARTED |
 | 8 — Presets | NOT STARTED |
@@ -24,7 +24,7 @@ Last updated: 2026-09-17
 | 13 — DaVinci workflow | NOT STARTED |
 | 14 — Quality benchmarking | NOT STARTED (ongoing once clips exist) |
 
-**Read this before trusting "COMPLETE" above:** per the phase discipline in `CLAUDE.md`, a phase isn't complete because the code runs — it's complete when the output has been inspected and is meaningfully good. Phases 2 and 3 are marked with their real caveats below instead of a bare COMPLETE, because this build environment could not fully exercise them. Do not upgrade those to COMPLETE until the items under "needs real-world verification" are actually checked.
+**Read this before trusting "COMPLETE" above:** per the phase discipline in `CLAUDE.md`, a phase isn't complete because the code runs — it's complete when the output has been inspected and is meaningfully good. Phases 2, 3, 4 and 5 are marked with their real caveats below instead of a bare COMPLETE, because this build environment could not fully exercise them against real content. Do not upgrade those to COMPLETE until the items under "needs real-world verification" are actually checked.
 
 ---
 
@@ -40,7 +40,7 @@ Last updated: 2026-09-17
 - `app/media.py` — ffprobe metadata extraction (duration, resolution, fps, codecs, audio channels/presence, file size, aspect ratio) and ffmpeg-based audio extraction, both with plain-language error handling (`UnsupportedMediaError`, `ExternalToolMissingError`).
 - `app/youtube.py` — YouTube URL validation (pure regex, handles watch/shorts/youtu.be/embed links + extra query params) and yt-dlp-based download, with errors translated to plain language (private/age-restricted/removed videos never leak a raw yt-dlp traceback).
 - `app/routers/ingest.py` — `POST /api/projects/{id}/upload` (multipart), `POST /api/projects/{id}/youtube`, `GET /api/projects/{id}/media` (range-request-capable, for the `<video>` preview player).
-- DB schema extended with `metadata_json`; `ProjectOut` now carries parsed metadata + `has_transcript`/`has_moments` flags computed from what's actually on disk (not a brittle status-string).
+- DB schema extended with `metadata_json`; `ProjectOut` now carries parsed metadata + `has_transcript`/`has_moments`/`has_clips` flags computed from what's actually on disk (not a brittle status-string).
 - Frontend: `SourcePanel.tsx` — drag/click file upload or YouTube URL input, then a real `<video>` preview with metadata line (duration/resolution/fps/codecs/size/source type).
 
 ### What was verified (real, not assumed)
@@ -56,13 +56,13 @@ Both this device sandbox and the cloud build container have `youtube.com` blocke
 ## Phase 2 — Local transcription: IMPLEMENTED, orchestration verified — ASR quality NOT verified
 
 ### What was implemented
-- `app/transcription.py` — `FasterWhisperEngine` wrapping faster-whisper: word-level timestamps, VAD filtering, `task="transcribe"` (never `"translate"` — this is the load-bearing line that keeps Hinglish as Hinglish instead of getting flattened into English), language auto-detected rather than forced. Model size configurable (`config.py: whisper_model_size`, override per-request via `?model_size=`). GPU-memory failures are caught and translated into `InsufficientResourcesError` with a plain-language suggestion (smaller model / CPU mode) instead of a raw CUDA error.
+- `app/transcription.py` — `FasterWhisperEngine` wrapping faster-whisper: word-level timestamps, VAD filtering, `task="transcribe"` (never `"translate"` — this is the load-bearing line that keeps Hinglish as Hinglish instead of getting flattened into English), language auto-detected rather than forced. Model size configurable (`config.py: whisper_model_size`, override per-request via `?model_size=`). GPU-memory and GPU-runtime failures (including ones that only surface while iterating decoded segments, not at model construction) are caught and translated into `InsufficientResourcesError` with a plain-language suggestion (smaller model / CPU mode) instead of a raw CUDA error, and the engine automatically retries on CPU rather than crashing — see the `whisper_device` (`auto`/`cuda`/`cpu`) setting and the `_is_gpu_runtime_failure()` heuristic.
 - `app/routers/transcription.py` — `POST /api/projects/{id}/transcribe`, `GET /api/projects/{id}/transcript`, `PATCH /api/projects/{id}/transcript/segments/{id}` (manual correction, required by the spec — a user shouldn't have to re-transcribe the whole video to fix one word).
 - Frontend: `TranscriptPanel.tsx` — transcribe button, scrollable timestamped segment list, click-to-edit inline correction.
 - The engine sits behind a small `Protocol` specifically so orchestration is testable without a downloaded model (see below) — this is a deliberate testability seam, not a shortcut in the production code path.
 
 ### What was verified (real, not assumed)
-- `pytest tests/test_transcription.py`: 5/5 passing. This covers: full orchestration (upload → transcribe → transcript.json written → project flips to `has_transcript` → GET returns it → scratch audio file cleaned up afterward) using a dependency-injected fake engine that still runs through **real audio extraction** (asserts the engine receives a real, non-empty extracted WAV file); Hinglish text (`"bhai ye kya ho raha hai"`) is preserved verbatim through the whole pipeline, not translated; manual segment editing persists and sets `edited: true`; missing-source and missing-transcript cases return friendly 400/404s.
+- `pytest tests/test_transcription.py`: passing. This covers: full orchestration (upload → transcribe → transcript.json written → project flips to `has_transcript` → GET returns it → scratch audio file cleaned up afterward) using a dependency-injected fake engine that still runs through **real audio extraction** (asserts the engine receives a real, non-empty extracted WAV file); Hinglish text (`"bhai ye kya ho raha hai"`) is preserved verbatim through the whole pipeline, not translated; manual segment editing persists and sets `edited: true`; missing-source and missing-transcript cases return friendly 400/404s; the GPU-runtime-failure-mid-iteration path falls back to CPU rather than propagating a raw CUDA error.
 - **The important one**: `test_real_engine_fails_gracefully_without_model_access` calls the **real** `FasterWhisperEngine` (no mocking) against a real video, with no network access to huggingface.co. It confirms the failure is caught and returned as a clean 503 with a plain-language message — not a 500, not a raw traceback, no "CUDA"/"traceback" leaking into the response. Confirmed on a live running server too (see the curl smoke test at the end of this doc).
 
 ### What was NOT verified — this is the important caveat for this phase
@@ -81,12 +81,12 @@ Both this device sandbox and the cloud build container have `youtube.com` blocke
 ### What was implemented
 - `app/audio_analysis.py` — deterministic short-time RMS loudness analysis (ffmpeg decode → numpy), independent of any model or network.
 - `app/llm.py` — `OllamaClient`, configurable host/model, every call wrapped so an unreachable/misconfigured Ollama degrades to "no enrichment" rather than breaking detection.
-- `app/moments.py` — the actual detector: content-type-aware keyword lexicons (English + Hindi/Hinglish slang + gaming terminology, deliberately not translated) combined with exclamation/caps-word text signals and the audio energy signal; candidates are built as **windows** of transcript segments (peak segment + neighboring context/reaction, not a bare timestamp), duration-bounded (10-90s for now); basic overlap de-duplication. LLM enrichment is optional and additive — deterministic signals alone are enough to produce a candidate list, matching the spec's explicit "don't rely solely on an LLM's subjective score" requirement.
+- `app/moments.py` — the actual detector: content-type-aware keyword lexicons (English + Hindi/Hinglish slang + gaming terminology, deliberately not translated) combined with exclamation/caps-word text signals and the audio energy signal; candidates are built as **windows** of transcript segments (peak segment + neighboring context/reaction, not a bare timestamp), duration-bounded (10-90s for now); basic overlap de-duplication. Each `Moment` now carries `start_idx`/`end_idx` (the segment-index span, not just timestamps) so Phase 4/5 can re-open and refine the exact window instead of re-deriving it. LLM enrichment is optional and additive — deterministic signals alone are enough to produce a candidate list, matching the spec's explicit "don't rely solely on an LLM's subjective score" requirement.
 - `app/routers/moments.py` — `POST /api/projects/{id}/detect-moments`, `GET /api/projects/{id}/moments`.
 - Frontend: `MomentsPanel.tsx` — candidate list with category badges, transcript excerpt, plain-language reason, click-to-seek on the video preview.
 
 ### What was verified (real, not assumed)
-- `pytest tests/test_audio_analysis.py` + `test_moments.py` + `test_moments_router.py`: 9/9 passing, and these are genuinely meaningful tests, not smoke tests:
+- `pytest tests/test_audio_analysis.py` + `test_moments.py` + `test_moments_router.py`: passing, and these are genuinely meaningful tests, not smoke tests:
   - `test_energy_profile_distinguishes_loud_from_quiet` — real ffmpeg-synthesized audio (quiet/loud/quiet), confirms the energy analyzer actually reads a >1σ spike in the loud section and near-zero in the quiet sections.
   - `test_detect_moments_finds_the_exciting_window` — combines that real energy profile with a hand-crafted transcript where the exciting line ("WAIT WHAT?! NO WAY! ARE YOU SERIOUS?!") lines up with the loud window; asserts the detector actually picks it as the top candidate, with the correct category, a non-empty explanation, and a window that includes surrounding context (not just the peak line alone).
   - `test_detect_moments_respects_content_type_lexicon` — confirms horror-relevant Hinglish ("bhai this game is so scary, I think there's a bhoot in here") gets categorized as `scare`, proving content-type-aware evaluation actually works, not just generic energy detection.
@@ -101,15 +101,59 @@ Both this device sandbox and the cloud build container have `youtube.com` blocke
 
 ---
 
-## Cross-phase: live end-to-end smoke test (this session)
+## Phase 4 — Clip ranking: IMPLEMENTED, scoring/selection logic verified on crafted signals — weights unvalidated against real content
+
+### What was implemented
+- `app/ranking.py` — multi-signal scoring per candidate moment: energy (from Phase 3's energy profile), text (keyword/caps/exclamation signal), a new **hook** sub-score (does the window open on something that will stop a scroll — energy spike or an attention-grabbing opener, penalized if it opens mid-sentence on a dangling conjunction like "and"/"so"/"because"), a new **payoff** sub-score (does it end on a resolution/punchline rather than trailing off), a new **standalone** sub-score (can this be understood without the rest of the video — penalizes windows that open on a bare pronoun/reference with no antecedent in-window), and a **duration_fit** sub-score (how close the refined length lands to the requested preset's preferred duration). Sub-scores are combined via fixed weights (`WEIGHTS` — hook and payoff weighted highest, matching the product brief's "hook in the first 3 seconds, satisfying payoff" priority) into a single `total_score`.
+- Selection (`select_clips()`) is a real ranking pass, not a bare top-N: sorts by `total_score`, keeps only clips at/above a `PUBLISHABLE_SCORE_THRESHOLD`, de-duplicates overlapping windows (>40% overlap keeps only the higher-scoring one), and applies a soft per-category diversity cap (max 2 of the same category before backfilling from the next-best of a different category) so the result isn't five near-identical "funny" clips back to back. When fewer clips clear the bar than requested, the result says so honestly via a `message` field rather than padding the list with weak candidates — this was an explicit product-brief requirement ("never pad to hit a number").
+- `app/duration_presets.py` — the four named presets from the brief (Ultra Short 10-20s, Short 20-35s, Standard 30-60s, Extended 60-90s) plus a validated `custom` preset with min/max/preferred bounds.
+- `app/routers/clips.py` — `POST /api/projects/{id}/generate-clips` (count, duration_preset, optional custom bounds), `GET /api/projects/{id}/clips`, persisting `clips.json` and reflected via a new `has_clips` project flag.
+- Frontend: `ClipsPanel.tsx` — duration preset selector, clip-count input, "Generate clips" button, ranked list with category badge, total score, transcript excerpt, plain-language reason, duration explanation, an expandable sub-score breakdown per clip, and click-to-seek on the shared video preview. Wired into `ProjectDetail.tsx` below `MomentsPanel`, gated on `project.has_moments`.
+
+### What was verified (real, not assumed)
+- `pytest tests/test_ranking.py`: 8/8 passing — unit tests per sub-score function (hook score responds to a real energy spike at the window start and penalizes a dangling-conjunction opener; payoff score responds to trailing energy/resolution language; standalone score penalizes an unresolved pronoun opener; duration_fit score peaks at the preset's preferred duration and falls off toward the bounds), plus `select_clips()` behavior tests confirming: overlapping candidates are de-duplicated to the higher scorer, the category diversity cap actually kicks in and backfills from a different category, and a request for more clips than clear the publishable threshold returns fewer clips with an honest `message` instead of padding.
+- `pytest tests/test_clips_router.py`: 5/5 passing — full API integration via `TestClient` using the same fake-engine dependency-injection pattern as the moments router tests (upload → transcribe → detect-moments → generate-clips → `clips.json` on disk → `has_clips` reflected → `GET /clips` returns the same result), plus bad-preset-value rejection (`ValidationFailedError` → clean 400, not a 500).
+- Full backend regression: **53/53 tests passing** after this phase's additions (up from 40 before Phase 4/5), confirming nothing in Phases 0-3 broke.
+- Frontend builds clean (`tsc -b && vite build`, zero TypeScript errors) with `ClipsPanel.tsx` and the new `Clip`/`ClipsResult`/`DurationPreset` types wired in.
+
+### What was NOT verified — and this is the important caveat
+**The scoring weights (`WEIGHTS` in `ranking.py`) and the publishable-score threshold are reasonable-but-unvalidated heuristics.** They were chosen to match the product brief's stated priorities (hook and payoff matter most) and confirmed to respond correctly to the *specific* crafted signals in the unit tests above — but no one has yet looked at a batch of ranked clips from a real gaming/Hinglish video and confirmed the top-ranked ones are actually the best ones a human would pick. The diversity cap (max 2 per category) and overlap threshold (40%) are also first-pass numbers, not tuned. **This is expected to need real-world calibration** — per `CLAUDE.md`'s own rule that human judgment is the final quality gate, not test coverage.
+
+**Action needed:** once you have real moments detected on your machine, generate clips and tell me: are the top-ranked ones actually the best candidates, does the diversity cap feel right or does it force in a weaker clip too eagerly, does any duration preset feel off.
+
+---
+
+## Phase 5 — Boundary optimization: IMPLEMENTED, refinement logic verified on crafted signals — needs real video judgment
+
+### What was implemented
+- `app/boundaries.py` — `refine_boundaries()`, called by `ranking.py: score_and_refine()` for every candidate before scoring, so ranking always operates on the *refined* window, not Phase 3's raw one. Two real behaviors, not placeholders:
+  - **Filler trimming**: strips leading filler-only segments (a lexicon of English + Hinglish fillers — "um", "so", "actually", "arey", "acha", "haan", etc. — only trims segments short enough and entirely filler, never eats into real content) so a clip doesn't open on a throat-clear.
+  - **Reaction extension**: if the window ends right before a short gap followed by continued loud energy (e.g. a reaction/laugh that trails just past the original window), it extends to include it — but only up to a hard overrun cap (`MAX_DURATION_OVERRUN_RATIO`, 1.15x the preset's max) so it can't runaway-extend a clip past its duration bounds chasing "one more loud segment."
+  - Produces a human-readable `duration_explanation` string (e.g. `"Recommended duration: 32 seconds -- trimmed a filler opener, extended slightly to include the reaction."`) surfaced directly in the UI so the duration choice isn't a black box.
+
+### What was verified (real, not assumed)
+- `pytest tests/test_boundaries.py`: 5/5 passing, including two real bugs this session's own tests caught and fixed before commit (not shipped-then-found bugs):
+  - `test_trims_leading_filler_segment` — caught that an overly-aggressive guard (originally tied to the full preset's minimum duration) was silently preventing filler trimming on short candidate windows; fixed by removing the guard, since the loop's own condition already guarantees at least one segment survives.
+  - `test_does_not_extend_past_max_duration_overrun_tolerance` — caught that the overrun check was evaluating the window's duration *before* the prospective extension instead of after, so it always allowed "one more" extension regardless of how far past the cap it would land; fixed to check the duration the extension would actually produce.
+  - The other three tests confirm: a window with no filler/no trailing reaction is left unchanged (`explanation` says so plainly), reaction-extension only fires when both the gap is short *and* the trailing energy is still loud (not just any short gap), and the refined `start_idx`/`end_idx` stay consistent with the returned `start`/`end` timestamps.
+- Exercised indirectly through every `test_ranking.py` and `test_clips_router.py` test above, since ranking always refines before scoring — the refinement path is on the hot path of every clip that gets generated, not a side branch.
+
+### What was NOT verified — needs real video judgment
+**Like Phase 3, this has only been exercised against hand-crafted `SimpleNamespace` segments and synthetic energy arrays, never a real transcript with real filler patterns and real reaction timing.** The filler lexicon is a reasonable first pass (common English fillers + a handful of Hindi/Hinglish ones the brief calls out) but almost certainly incomplete against real speech. The gap/energy thresholds for reaction-extension (`REACTION_EXTEND_GAP_THRESHOLD` = 2.0s, `REACTION_EXTEND_ENERGY_Z` = 1.0σ) are unvalidated guesses.
+
+**Action needed:** same as Phase 4 — once real clips are generated from a real video, check whether the `duration_explanation` text matches what actually happened (did it really trim a filler, does the extension feel natural or does it cut off a reaction too early/late).
+
+---
+
+## Cross-phase: live end-to-end smoke test (earlier session)
 
 Ran the actual `uvicorn` server (not TestClient) and drove it with `curl` through a real pipeline: create project → upload a real ffmpeg-generated video → correct metadata came back over HTTP → media streamed back successfully → transcribe attempted with the real engine → failed exactly as designed with a clean `503` and a plain-language message (`"Couldn't load the local transcription model... Check your connection and try again."`), no raw error leaking through, confirmed both in the HTTP response and that the technical detail (`403 Forbidden`) only appears in the server-side log, not the client response.
 
 ## Known bugs / issues
-None currently open.
+None currently open. (Two bugs were found and fixed during Phase 4/5 development itself — see the Phase 5 section above — but neither shipped to `main` in a broken state; they were caught by this session's own tests before commit.)
 
 ## Next tasks
-1. **You**: run this on your machine, try a real YouTube URL, try a real Hindi/Hinglish gaming clip through transcription + moment detection, tell me what's actually wrong with the output. This is the single highest-value thing that can happen next — everything past this point is implemented against my best judgment but unverified against real content.
-2. Phase 4 — Clip ranking: multi-signal scoring (hook/payoff/emotion/humor/surprise/standalone comprehension/etc.), real diversity enforcement (Phase 3's de-dup is a placeholder), explanation generation.
-3. Phase 5 — Boundary optimization: Phase 3's window-building is intentionally basic; this needs sentence-boundary-aware refinement, "don't start mid-sentence," configurable duration presets (Ultra Short/Short/Standard/Extended) actually wired to user choice.
-4. Consider background-job execution for transcribe/detect-moments (currently synchronous, blocking the HTTP request) once real video lengths make that painful — noted here rather than silently deferred.
+1. **You**: run this on your machine, try a real YouTube URL, try a real Hindi/Hinglish gaming clip through transcription + moment detection + clip generation, tell me what's actually wrong with the output. This is the single highest-value thing that can happen next — everything past Phase 1 is implemented against my best judgment but unverified against real content.
+2. Phase 6 — Hinglish captions: burned-in caption generation and styling, keeping Hinglish code-switching intact (same "never translate" principle as Phase 2).
+3. Phase 7 — Smart reframing/editing: vertical (9:16) reframe with speaker/action-aware cropping, not a naive center-crop.
+4. Consider background-job execution for transcribe/detect-moments/generate-clips (currently synchronous, blocking the HTTP request) once real video lengths make that painful — noted here rather than silently deferred.

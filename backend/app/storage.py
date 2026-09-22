@@ -51,6 +51,10 @@ def moments_path(project_id: str) -> Path:
     return project_dir(project_id) / "moments" / "moments.json"
 
 
+def clips_path(project_id: str) -> Path:
+    return project_dir(project_id) / "clips" / "clips.json"
+
+
 def write_json(path: Path, payload: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, default=str))
