@@ -177,6 +177,7 @@ export interface HardwareReport {
 }
 
 export interface Capabilities {
+  gpu_transcription?: { nvidia_gpu: boolean; cuda_libs_installed: boolean };
   ffmpeg: { available: boolean; version: string | null; captions_supported: boolean; nvenc: boolean };
   face_detection: boolean;
   youtube: { yt_dlp: string | null; js_runtime: boolean };

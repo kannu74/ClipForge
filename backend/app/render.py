@@ -191,7 +191,7 @@ def render_clip(
     used = None
     for enc in _encoders_to_try():
         args = [
-            "-y", "-ss", f"{start:.3f}", "-i", str(source), "-t", f"{duration:.3f}",
+            "-y", "-ss", f"{start:.3f}", "-i", str(Path(source).resolve()), "-t", f"{duration:.3f}",
             "-filter_complex", fc, "-map", "[vout]",
         ]
         if has_audio:

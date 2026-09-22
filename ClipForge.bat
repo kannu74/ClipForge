@@ -66,6 +66,22 @@ if errorlevel 1 (
   copy /y "requirements.txt" "%VENV%\requirements.installed.txt" >nul
 )
 
+REM NVIDIA GPU? Install the CUDA libraries transcription needs (one time,
+REM ~1.5 GB). Without them the GPU sits idle and transcription runs on the
+REM CPU with a smaller, less accurate model.
+if exist "%VENV%\gpu-libs.installed" goto gpu_done
+where nvidia-smi >nul 2>&1
+if errorlevel 1 goto gpu_done
+echo.
+echo [ClipForge] NVIDIA GPU found. Installing GPU support for transcription (one time, ~1.5 GB)...
+"%PY%" -m pip install "nvidia-cublas-cu12" "nvidia-cudnn-cu12==9.*" --disable-pip-version-check
+if errorlevel 1 (
+  echo  GPU support could not be installed right now - ClipForge will use the CPU. It will try again next start.
+) else (
+  echo ok> "%VENV%\gpu-libs.installed"
+)
+:gpu_done
+
 if not exist ".env" copy ".env.example" ".env" >nul
 
 echo.

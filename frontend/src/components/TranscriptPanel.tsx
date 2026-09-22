@@ -2,9 +2,34 @@ import { useEffect, useState } from "react";
 import { api, errorText } from "../lib/api";
 import { fmtTime } from "../lib/format";
 import type { Project, Transcript } from "../lib/types";
-import { Card, ErrorBox } from "./ui";
+import { Button, Card, ErrorBox, Segmented } from "./ui";
 
-export default function TranscriptPanel({ project, onEdited }: { project: Project; onEdited: () => void }) {
+export default function TranscriptPanel({
+  project,
+  onEdited,
+  busy = false,
+}: {
+  project: Project;
+  onEdited: () => void;
+  busy?: boolean;
+}) {
+  const [model, setModel] = useState<string>(project.settings?.whisper_model ?? "auto");
+  const [redoing, setRedoing] = useState(false);
+
+  async function transcribeAgain() {
+    if (!confirm("Transcribe the video again? Your clips will be picked again from the new transcript (clips you cut yourself are kept).")) return;
+    setRedoing(true);
+    setError(null);
+    try {
+      await api.updateSettings(project.id, { whisper_model: model === "auto" ? null : model });
+      await api.process(project.id, { force_transcribe: true });
+      onEdited();
+    } catch (e) {
+      setError(errorText(e));
+    } finally {
+      setRedoing(false);
+    }
+  }
   const [transcript, setTranscript] = useState<Transcript | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [editingId, setEditingId] = useState<number | null>(null);
@@ -31,6 +56,27 @@ export default function TranscriptPanel({ project, onEdited }: { project: Projec
   if (!project.has_transcript) {
     return <Card className="p-6 text-sm text-slate-500">The transcript appears here once the video has been processed.</Card>;
   }
+
+  const redo = (
+    <div className="mt-4 flex flex-wrap items-center gap-2 rounded-xl border border-surface-border bg-surface p-3">
+      <span className="text-sm text-slate-300">Transcript wrong or garbled?</span>
+      <Segmented<string>
+        size="sm"
+        value={model}
+        onChange={setModel}
+        options={[
+          { value: "auto", label: "Auto" },
+          { value: "medium", label: "Better" },
+          { value: "large-v3-turbo", label: "Best" },
+          { value: "large-v3", label: "Max (slow)" },
+        ]}
+      />
+      <Button size="sm" variant="primary" disabled={busy || redoing} onClick={transcribeAgain}>
+        Transcribe again
+      </Button>
+      <span className="text-xs text-slate-500">Bigger models are much more accurate for Hinglish; they're fast on an NVIDIA GPU, slow on CPU.</span>
+    </div>
+  );
 
   const q = query.trim().toLowerCase();
   const segments = (transcript?.segments ?? []).filter((s) => !q || s.text.toLowerCase().includes(q));
@@ -59,6 +105,7 @@ export default function TranscriptPanel({ project, onEdited }: { project: Projec
           <ErrorBox message={error} onDismiss={() => setError(null)} />
         </div>
       )}
+      {redo}
       <div className="mt-4 max-h-[65vh] space-y-0.5 overflow-y-auto pr-1">
         {segments.map((seg) => (
           <div key={seg.id} className="group rounded-lg px-2 py-1.5 hover:bg-surface">

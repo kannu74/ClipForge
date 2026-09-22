@@ -24,7 +24,9 @@ export default function ClipCard({
   onEdit,
   onRender,
   onDelete,
+  captionsOn = true,
 }: {
+  captionsOn?: boolean;
   projectId: string;
   clip: Clip;
   index: number;
@@ -113,6 +115,15 @@ export default function ClipCard({
           <span>{fmtDuration(duration)}</span>
           {r.size_bytes ? <span>· {fmtBytes(r.size_bytes)}</span> : null}
           {clip.edited && <span className="text-accent">· edited</span>}
+          <span
+            className={cx(
+              "rounded px-1.5 py-0.5 font-mono text-[10px]",
+              captionsOn ? "bg-accent/20 text-accent" : "bg-slate-700 text-slate-400 line-through"
+            )}
+            title={captionsOn ? "Captions are burned in" : "No captions"}
+          >
+            CC
+          </span>
         </div>
         {r.status === "done" && r.stale && !rendering && (
           <div className="rounded-lg border border-amber-800 bg-amber-950/40 px-2 py-1 text-xs text-amber-300">

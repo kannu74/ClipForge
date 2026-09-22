@@ -61,17 +61,26 @@ class RankedClip:
 
 def virality_score(total_score: float) -> int:
     """Map the raw weighted score onto a 1-99 scale for display. Monotonic,
-    so ordering is unchanged; centred so the publishable threshold (~1.5)
-    lands around 40 and a very strong multi-signal clip lands in the 90s."""
-    v = 99.0 / (1.0 + math.exp(-(total_score - 2.0) / 1.1))
+    so ordering is unchanged. The publishable threshold (1.5) lands around
+    22, a typical good clip (~4-5) in the 60s-70s, and only clips strong on
+    several signals at once reach the 90s."""
+    v = 99.0 / (1.0 + math.exp(-(total_score - 3.2) / 1.4))
     return int(max(1, min(99, round(v))))
+
+
+def _compress_z(z: float) -> float:
+    """Loudness z-scores in real gameplay run up to 9-10 (gunshots,
+    explosions). Uncompressed, one loud bang outweighed every other signal
+    and every clip scored 99. Log-compress so loudness still matters but
+    hook/payoff/speech can compete: z=1 -> 1.1, 2 -> 1.8, 4 -> 2.6, 9 -> 3.7."""
+    return 1.6 * math.log1p(max(z, 0.0))
 
 
 def _hook_score(segments: list, start_idx: int, energy_profile: EnergyProfile) -> float:
     """Does the clip grab attention in its opening ~2 seconds?"""
     first = segments[start_idx]
     opening_end = min(first.start + 2.0, first.end)
-    z = max(energy_profile.peak_z_in_range(first.start, opening_end), 0.0)
+    z = _compress_z(energy_profile.peak_z_in_range(first.start, opening_end))
     text_hit = 1.0 if "!" in first.text or (first.text.isupper() and len(first.text) > 3) else 0.0
     return round(z * 0.6 + text_hit, 3)
 
@@ -80,7 +89,7 @@ def _payoff_score(segments: list, end_idx: int, energy_profile: EnergyProfile) -
     """Does the clip end on a strong beat rather than trailing off mid-thought?"""
     last = segments[end_idx]
     closing_start = max(last.end - 2.0, last.start)
-    z = max(energy_profile.peak_z_in_range(closing_start, last.end), 0.0)
+    z = _compress_z(energy_profile.peak_z_in_range(closing_start, last.end))
     exclaim = min(last.text.count("!"), 2) * 0.3
     return round(z * 0.6 + exclaim, 3)
 
@@ -135,8 +144,9 @@ def score_and_refine(
     payoff = _payoff_score(segments, refined.end_idx, energy_profile)
     standalone = _standalone_score(segments, refined.start_idx)
     duration_fit = _duration_fit_score(duration, bounds)
-    energy_component = max(moment.signals.get("energy_z", 0.0), 0.0)
-    text_component = max(moment.score - energy_component, 0.0)
+    raw_z = max(moment.signals.get("energy_z", 0.0), 0.0)
+    energy_component = _compress_z(raw_z)
+    text_component = max(moment.score - raw_z, 0.0)
 
     total = (
         WEIGHTS["energy"] * energy_component

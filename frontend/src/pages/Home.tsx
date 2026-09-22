@@ -11,7 +11,7 @@ import {
   type Project,
 } from "../lib/types";
 import { CaptionControls, ClipOptions, FramingControls } from "../components/SettingsControls";
-import { Button, Card, ErrorBox, ProgressBar, Segmented, TimeInput, Toggle } from "../components/ui";
+import { Button, CaptionsOnOff, Card, ErrorBox, ProgressBar, Segmented, TimeInput, Toggle } from "../components/ui";
 
 const PREFS_KEY = "clipforge.lastSettings.v1";
 
@@ -313,6 +313,14 @@ export default function Home() {
               </button>
             ))}
           </div>
+        </div>
+
+        <div className="mt-6 space-y-2">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Captions</div>
+          <CaptionsOnOff
+            enabled={settings.captions.enabled}
+            onChange={(v) => patch({ captions: { ...settings.captions, enabled: v } })}
+          />
         </div>
 
         <div className="mt-6 rounded-xl border border-surface-border bg-surface/50 p-4">

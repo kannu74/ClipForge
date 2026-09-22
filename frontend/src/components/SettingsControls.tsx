@@ -12,7 +12,7 @@ import {
 } from "../lib/types";
 import { cx } from "../lib/format";
 import CaptionPreview from "./CaptionPreview";
-import { Field, Segmented, Slider, Toggle } from "./ui";
+import { CaptionsOnOff, Field, Segmented, Slider, Toggle } from "./ui";
 
 export function ClipOptions({
   value,
@@ -116,9 +116,9 @@ export function CaptionControls({
   const styles = Object.keys(CAPTION_STYLE_INFO) as Exclude<CaptionStyleName, "none">[];
   return (
     <div className="space-y-5">
-      <div className="flex items-center justify-between">
-        <Toggle checked={value.enabled} onChange={(v) => onChange({ enabled: v })} label="Burn captions into the video" />
-      </div>
+      <Field label="Captions" hint={value.enabled ? "Captions are burned into the video. An .srt file is always included too." : "No captions will be burned in (an .srt file is still included)."}>
+        <CaptionsOnOff enabled={value.enabled} onChange={(v) => onChange({ enabled: v })} />
+      </Field>
       <div className={cx("space-y-5", !value.enabled && "pointer-events-none opacity-40")}>
         <Field label="Style">
           <div className="grid grid-cols-3 gap-2">

@@ -15,6 +15,10 @@ export default function App() {
     if (!caps.ffmpeg.available) problems.push("FFmpeg wasn't found — videos can't be processed. Re-run ClipForge setup.");
     else if (!caps.ffmpeg.captions_supported)
       problems.push("Your FFmpeg build can't burn in captions. Re-run ClipForge setup to use the bundled FFmpeg.");
+    if (caps.gpu_transcription?.nvidia_gpu && !caps.gpu_transcription.cuda_libs_installed)
+      problems.push(
+        "Your NVIDIA GPU isn't used for transcription yet (slower and less accurate on CPU). Close ClipForge and start ClipForge.bat again — it installs GPU support automatically."
+      );
     if (!caps.face_detection) problems.push("Face detection isn't available, so smart framing falls back to full-frame.");
   }
 

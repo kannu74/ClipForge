@@ -6,7 +6,7 @@ import CaptionPreview from "./CaptionPreview";
 import FacecamPicker from "./FacecamPicker";
 import { CaptionControls, FramingControls } from "./SettingsControls";
 import TrimTimeline from "./TrimTimeline";
-import { Button, ErrorBox, Modal, Segmented } from "./ui";
+import { Button, CaptionsOnOff, ErrorBox, Modal, Segmented } from "./ui";
 
 function same(a: unknown, b: unknown) {
   return JSON.stringify(a) === JSON.stringify(b);
@@ -225,6 +225,7 @@ export default function ClipEditor({
 
         {/* Right: controls */}
         <div className="space-y-4">
+          <CaptionsOnOff compact enabled={cap.enabled} onChange={(v) => setCap((c) => ({ ...c, enabled: v }))} />
           <Segmented
             size="sm"
             value={tab}

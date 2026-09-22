@@ -411,11 +411,11 @@ def ensure_preview(project_id: str, progress: ProgressFn = _noop) -> Path | None
     duration = float(meta.get("duration_seconds") or 1.0)
     tmp = out.with_name("preview.tmp.mp4")
     if meta.get("video_codec") == "h264" and meta.get("audio_codec") in ("aac", "mp3", None):
-        args = ["-y", "-i", str(src), "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart", tmp.name]
+        args = ["-y", "-i", str(src.resolve()), "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart", tmp.name]
         label = "Preparing browser preview"
     else:
         args = [
-            "-y", "-i", str(src), "-map", "0:v:0", "-map", "0:a:0?",
+            "-y", "-i", str(src.resolve()), "-map", "0:v:0", "-map", "0:a:0?",
             "-vf", "scale=-2:'min(720,ih)'", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
             "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", tmp.name,
         ]

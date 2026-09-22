@@ -271,3 +271,39 @@ export function TimeInput({
     />
   );
 }
+
+/** Big, obvious captions on/off switch -- used wherever captions can be set. */
+export function CaptionsOnOff({
+  enabled,
+  onChange,
+  compact,
+}: {
+  enabled: boolean;
+  onChange: (v: boolean) => void;
+  compact?: boolean;
+}) {
+  const base = "flex flex-1 items-center justify-center gap-2 rounded-lg font-semibold transition-colors";
+  const size = compact ? "px-3 py-1.5 text-xs" : "px-4 py-2.5 text-sm";
+  return (
+    <div className="flex gap-1 rounded-xl border-2 border-accent/60 bg-accent/5 p-1" role="radiogroup" aria-label="Captions">
+      <button
+        type="button"
+        role="radio"
+        aria-checked={enabled}
+        onClick={() => onChange(true)}
+        className={cx(base, size, enabled ? "bg-accent text-white shadow" : "text-slate-400 hover:bg-surface-raised hover:text-slate-200")}
+      >
+        <span className="rounded bg-white/20 px-1 font-mono text-[10px]">CC</span> With captions
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={!enabled}
+        onClick={() => onChange(false)}
+        className={cx(base, size, !enabled ? "bg-slate-600 text-white shadow" : "text-slate-400 hover:bg-surface-raised hover:text-slate-200")}
+      >
+        No captions
+      </button>
+    </div>
+  );
+}

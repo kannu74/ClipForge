@@ -105,7 +105,7 @@ def sample_faces(src: Path, start: float, end: float, src_w: int, src_h: int) ->
     ah = _even(aw * src_h / src_w)
     duration = max(end - start, 0.1)
     cmd = [
-        tools.ffmpeg_path(), "-v", "error", "-ss", f"{start:.3f}", "-i", str(src), "-t", f"{duration:.3f}",
+        tools.ffmpeg_path(), "-v", "error", "-ss", f"{start:.3f}", "-i", str(Path(src).resolve()), "-t", f"{duration:.3f}",
         "-an", "-vf", f"fps={SAMPLE_FPS},scale={aw}:{ah}", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1",
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=tools.SUBPROCESS_FLAGS)

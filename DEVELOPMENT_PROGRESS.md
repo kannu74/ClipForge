@@ -11,7 +11,7 @@ ClipForge is now a complete, usable app: double-click `ClipForge.bat` → paste 
 **Verified here:**
 - Upload, transcript handling, moment detection, ranking, duration fitting, captions, reframing, rendering, QC, editing and downloads all work end-to-end, through the real API and the real UI (driven with Playwright).
 - The rendered MP4s were inspected frame by frame.
-- 78 automated tests pass on Python 3.10 and 3.11.
+- 80 automated tests pass on Python 3.10 and 3.11.
 
 **Not verifiable here, and the most important thing to check next:**
 - real Whisper transcription quality (especially Hinglish);
@@ -20,6 +20,40 @@ ClipForge is now a complete, usable app: double-click `ClipForge.bat` → paste 
 - GPU/NVENC paths.
 
 The sandboxes this was built in block youtube.com and huggingface.co and have no GPU or Windows. The code for each of these is written defensively with fallbacks, but "written defensively" is not "verified" — see the per-phase caveats below.
+
+## First real-world run (2026-09-23, Akshar's PC) — findings and fixes
+
+Akshar ran ClipForge on Windows with his Resident Evil 7 video (10 min, 1080p60, Hinglish commentary).
+
+**Worked for real:**
+- the Windows launcher;
+- the YouTube download (617s video in ~40s);
+- Ollama enrichment (it was running);
+- facecam detection, which consistently found the facecam in 5 of 5 clips, bottom-centre, face in 78–96% of samples;
+- ASS captions with libass/DirectWrite on Windows;
+- NVENC being detected.
+
+**Broke, now fixed:**
+- **Every render failed.** `CLIPFORGE_DATA_DIR=./data` gave ffmpeg a relative source path, while ffmpeg runs inside the renders folder. The data dir is now always absolute and source paths are resolved.
+  - Regression test: `test_render_works_with_relative_data_dir`, which reproduces the exact Windows failure without the fix.
+- **The first model download failed twice** (Hugging Face Xet "CAS Client Error", then "cached snapshot incomplete"). ClipForge now:
+  - disables the Xet backend;
+  - retries up to 3×;
+  - clears a partial download between tries.
+- **The GPU wasn't used** (`cublas64_12.dll` not found). The CPU fallback worked, but with the `small` model the Hinglish transcript came out as **gibberish** (Devanagari word salad). Changes:
+  - `ClipForge.bat` now auto-installs NVIDIA cuBLAS/cuDNN when `nvidia-smi` exists;
+  - the UI shows a banner while GPU support is missing;
+  - the CPU default model is now `medium` (quality over speed);
+  - a "Transcribe again" button with a model picker is on the Transcript tab.
+- **Every clip scored 99/99**: real game audio reaches 9σ loudness peaks. Loudness is now log-compressed and the 1–99 scale recalibrated.
+- **Captions on/off was easy to miss.** There is now a prominent "With captions / No captions" switch:
+  - on Home;
+  - in the clip editor;
+  - in caption settings;
+  - project-wide on the clips toolbar, which re-renders.
+  Each clip card shows a CC badge.
+
+**Still open:** Hinglish transcription quality with the GPU and large-v3-turbo is not yet seen, and it is the next thing to check.
 
 ## Phase status
 

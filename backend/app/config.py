@@ -10,6 +10,7 @@ from __future__ import annotations
 from enum import Enum
 from pathlib import Path
 
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -43,8 +44,8 @@ class Settings(BaseSettings):
     ollama_host: str = "http://localhost:11434"
     ollama_model: str = "llama3.1"
     # auto | tiny | base | small | medium | large-v3-turbo | large-v3.
-    # "auto" = large-v3-turbo on an NVIDIA GPU with >=6 GB VRAM, else small
-    # (small is the smallest model that handles Hinglish code-switching well).
+    # "auto" = large-v3-turbo on an NVIDIA GPU with >=6 GB VRAM, else medium
+    # (small proved too inaccurate for real Hinglish gameplay commentary).
     whisper_model_size: str = "auto"
     # auto | cuda | cpu -- "auto" prefers the GPU and falls back to CPU if the
     # CUDA runtime is unusable; set "cpu" to skip the GPU attempt entirely.
@@ -68,6 +69,14 @@ class Settings(BaseSettings):
     # Serve the built frontend (backend/app/static) at "/" -- single-process
     # production mode. The Vite dev server still works independently.
     serve_frontend: bool = True
+
+    @field_validator("data_dir")
+    @classmethod
+    def _absolute_data_dir(cls, v: Path) -> Path:
+        # Always absolute: ffmpeg runs with the render folder as its working
+        # directory, so a relative "./data/..." source path would point at
+        # the wrong place (this broke every render on Windows).
+        return Path(v).expanduser().resolve()
 
     @property
     def projects_dir(self) -> Path:

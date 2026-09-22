@@ -106,3 +106,38 @@ def test_presets_builtin_and_custom(client):
     assert client.delete("/api/presets/builtin-horror").status_code == 400
     bad = client.post("/api/presets", json={"name": "x", "settings": {"captions": {"style": "nope"}}})
     assert bad.status_code == 400
+
+
+def test_render_works_with_relative_data_dir(tmp_path, sample_video):
+    """Regression: on Windows the default CLIPFORGE_DATA_DIR=./data made every
+    render fail -- ffmpeg runs inside the renders folder, so the relative
+    source path pointed nowhere. Run a real render in a fresh process with a
+    relative data dir."""
+    import os
+    import shutil
+    import sys
+
+    backend = Path(__file__).resolve().parent.parent
+    shutil.copy(sample_video, tmp_path / "v.mp4")
+    script = f'''
+import sys; sys.path.insert(0, {str(backend)!r})
+from fastapi.testclient import TestClient
+from app.main import app
+from app import jobs
+with TestClient(app) as c:
+    pid = c.post("/api/projects", json={{"name": "rel", "settings": {{"auto_render": False, "captions": {{"title_overlay": True}}}}}}).json()["id"]
+    with open("v.mp4", "rb") as f:
+        c.post(f"/api/projects/{{pid}}/upload", files={{"file": ("v.mp4", f, "video/mp4")}})
+    c.post(f"/api/projects/{{pid}}/clips", json={{"start": 0.5, "end": 4.0, "title": "Relative", "render": True}})
+    jobs.wait_idle(120)
+    print("STATUS=" + c.get(f"/api/projects/{{pid}}/clips").json()["clips"][0]["render"]["status"])
+'''
+    env = {**os.environ, "CLIPFORGE_DATA_DIR": "./data"}
+    out = subprocess.run([sys.executable, "-c", script], cwd=tmp_path, env=env, capture_output=True, text=True, timeout=180)
+    assert "STATUS=done" in out.stdout, out.stdout[-2000:] + out.stderr[-2000:]
+
+
+def test_data_dir_setting_is_always_absolute():
+    from app.config import Settings
+
+    assert Settings(data_dir=Path("relative/data")).data_dir.is_absolute()

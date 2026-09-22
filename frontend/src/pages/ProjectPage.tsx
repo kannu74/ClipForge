@@ -18,7 +18,7 @@ import PipelineProgress from "../components/PipelineProgress";
 import { CaptionControls, ClipOptions, FramingControls } from "../components/SettingsControls";
 import SourceTab from "../components/SourceTab";
 import TranscriptPanel from "../components/TranscriptPanel";
-import { Button, Card, ErrorBox, LinkButton, ProgressBar, Segmented } from "../components/ui";
+import { Button, CaptionsOnOff, Card, ErrorBox, LinkButton, ProgressBar, Segmented } from "../components/ui";
 
 type Tab = "clips" | "source" | "transcript" | "settings";
 
@@ -224,6 +224,30 @@ export default function ProjectPage() {
         <div className="space-y-4">
           {clips?.message && <div className="rounded-xl border border-amber-800 bg-amber-950/30 px-4 py-3 text-sm text-amber-200">{clips.message}</div>}
           {clipList.length > 0 && (
+            <div className="flex flex-wrap items-center gap-3 rounded-xl border border-surface-border bg-surface-raised px-4 py-3">
+              <span className="text-sm font-medium text-slate-300">Captions on all clips:</span>
+              <div className="w-72">
+                <CaptionsOnOff
+                  compact
+                  enabled={settings.captions.enabled}
+                  onChange={(v) =>
+                    act(async () => {
+                      await api.updateSettings(projectId, { captions: { enabled: v } });
+                      // Clips customised in the editor follow this switch too.
+                      for (const c of clipList) {
+                        if (c.caption_overrides && "enabled" in c.caption_overrides && c.caption_overrides.enabled !== v) {
+                          await api.patchClip(projectId, c.id, { caption_overrides: { enabled: v } });
+                        }
+                      }
+                      if (clipList.some((c) => c.render.status === "done")) await api.renderAll(projectId);
+                    })
+                  }
+                />
+              </div>
+              <span className="text-xs text-slate-500">Changing this re-renders your clips.</span>
+            </div>
+          )}
+          {clipList.length > 0 && (
             <div className="flex flex-wrap items-center gap-2">
               <span className="mr-auto text-sm text-slate-400">
                 {clipList.length} clips · {renderedCount} rendered
@@ -264,6 +288,7 @@ export default function ProjectPage() {
                 onDelete={() => {
                   if (confirm("Delete this clip?")) act(() => api.deleteClip(projectId, c.id));
                 }}
+                captionsOn={c.caption_overrides?.enabled ?? settings.captions.enabled}
               />
             ))}
           </div>
@@ -289,7 +314,7 @@ export default function ProjectPage() {
         />
       )}
 
-      {tab === "transcript" && <TranscriptPanel project={project} onEdited={refresh} />}
+      {tab === "transcript" && <TranscriptPanel project={project} onEdited={refresh} busy={busy} />}
 
       {tab === "settings" && (
         <SettingsTab

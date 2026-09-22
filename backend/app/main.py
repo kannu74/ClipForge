@@ -1,6 +1,7 @@
 """ClipForge backend entrypoint."""
 from __future__ import annotations
 
+import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -13,6 +14,10 @@ from app.db import init_db
 from app.errors import ClipForgeError, clipforge_error_handler, unhandled_error_handler
 from app.logging_config import configure_logging, get_logger
 from app.routers import clips, ingest, jobs as jobs_router, moments, presets, projects, system, transcription
+
+# Reliable model downloads even when started without run.py (see run.py).
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
+os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 
 settings.ensure_dirs()
 configure_logging(settings.data_dir / "logs", settings.log_level)

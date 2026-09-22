@@ -68,7 +68,20 @@ def capabilities() -> dict:
         deno = True
     except Exception:
         deno = False
+    from app.hardware import _detect_gpu
+
+    gpu = _detect_gpu().available
+    libs = False
+    try:
+        import site
+        from pathlib import Path as _P
+
+        roots = list(site.getsitepackages()) + [site.getusersitepackages()]
+        libs = any((_P(r) / "nvidia" / "cublas").is_dir() for r in roots)
+    except Exception:
+        pass
     return {
+        "gpu_transcription": {"nvidia_gpu": gpu, "cuda_libs_installed": libs},
         "ffmpeg": {
             "available": tools.ffmpeg_available(),
             "version": tools.ffmpeg_version(),

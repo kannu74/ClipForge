@@ -1,6 +1,7 @@
 @echo off
 REM ============================================================
-REM  Optional: let transcription use an NVIDIA GPU (much faster).
+REM  ClipForge.bat does this automatically when it finds an NVIDIA GPU.
+REM  Run this only to retry manually. Lets transcription use the GPU.
 REM  Downloads NVIDIA's cuBLAS + cuDNN runtime libraries (~1.5 GB)
 REM  into ClipForge's private Python environment. Run ClipForge.bat
 REM  at least once first. Without this, ClipForge still works on CPU.
@@ -28,6 +29,7 @@ if errorlevel 1 (
   pause
   exit /b 1
 )
+echo ok> "%~dp0..\backend\.venv-win\gpu-libs.installed"
 echo.
 echo Done. Restart ClipForge -- transcription will now use your GPU when possible
 echo (and automatically fall back to the CPU if anything goes wrong).

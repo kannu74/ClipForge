@@ -76,6 +76,26 @@ def _is_gpu_runtime_failure(exc: Exception) -> bool:
     return any(marker in str(exc).lower() for marker in _GPU_FAILURE_MARKERS)
 
 
+def _clear_partial_download(model_size: str) -> None:
+    """Remove a half-downloaded model from the Hugging Face cache so the next
+    attempt starts clean (an interrupted first download otherwise fails with
+    'cached snapshot ... incomplete' forever)."""
+    try:
+        from faster_whisper.utils import _MODELS  # type: ignore
+        from huggingface_hub import scan_cache_dir
+
+        repo = _MODELS.get(model_size)
+        if not repo:
+            return
+        info = scan_cache_dir()
+        hashes = [rev.commit_hash for r in info.repos if r.repo_id == repo for rev in r.revisions]
+        if hashes:
+            info.delete_revisions(*hashes).execute()
+            logger.info("Cleared a partial download of %s", repo)
+    except Exception as exc:  # best effort
+        logger.info("Couldn't clear partial model download: %s", exc)
+
+
 class FasterWhisperEngine:
     """Real engine, backed by faster-whisper. Loads the model lazily so
     importing this module never requires internet or a downloaded model."""
@@ -97,11 +117,25 @@ class FasterWhisperEngine:
                 suggestion="Run `pip install -r requirements.txt` in the backend and try again.",
             ) from exc
 
-        try:
-            model = WhisperModel(model_size, device=device, compute_type="auto")
-        except Exception as exc:
+        last_exc: Exception | None = None
+        model = None
+        for attempt in range(3):
+            try:
+                model = WhisperModel(model_size, device=device, compute_type="auto")
+                break
+            except Exception as exc:  # download hiccups are common on the first run
+                last_exc = exc
+                msg = str(exc).lower()
+                if "memory" in msg or "cuda" in msg or "cublas" in msg or "cudnn" in msg:
+                    break
+                logger.warning("Loading Whisper '%s' failed (attempt %d/3): %s", model_size, attempt + 1, exc)
+                if "cached snapshot" in msg or "incomplete" in msg or "reconstruction" in msg:
+                    _clear_partial_download(model_size)
+                time.sleep(2 * (attempt + 1))
+        if model is None:
+            exc = last_exc or RuntimeError("unknown error")
             msg = str(exc).lower()
-            if "memory" in msg or "cuda" in msg:
+            if "memory" in msg or _is_gpu_runtime_failure(exc):
                 raise InsufficientResourcesError(
                     "The selected transcription model needs more GPU memory than is currently available.",
                     suggestion="Try a smaller model (tiny/base/small) or switch to CPU-only mode in settings.",
@@ -202,7 +236,10 @@ class FasterWhisperEngine:
             return self._run(cpu_model, audio_path, cpu_size, language, on_progress)
 
 
-_CPU_FRIENDLY_FALLBACK = {"large-v3": "small", "large-v3-turbo": "small", "large-v2": "small", "medium": "small"}
+# On CPU, "small" turned real Hinglish gameplay commentary into gibberish
+# (first real-world run), so the CPU default is "medium": slower, but the
+# transcript is the foundation for everything else (quality > speed).
+_CPU_FRIENDLY_FALLBACK = {"large-v3": "medium", "large-v3-turbo": "medium", "large-v2": "medium"}
 
 
 def resolve_model_size(requested: str | None) -> str:
@@ -211,7 +248,7 @@ def resolve_model_size(requested: str | None) -> str:
     if size != "auto":
         return size
     if settings.whisper_device == "cpu":
-        return "small"
+        return "medium"
     try:
         from app.hardware import _detect_gpu
 
@@ -220,7 +257,7 @@ def resolve_model_size(requested: str | None) -> str:
             return "large-v3-turbo"
     except Exception:  # pragma: no cover
         pass
-    return "small"
+    return "medium"
 
 
 def _fmt(seconds: float) -> str:

@@ -20,6 +20,9 @@ os.chdir(HERE)  # .env and ./data are relative to backend/
 sys.path.insert(0, str(HERE))
 os.environ.setdefault("HF_HUB_DISABLE_SYMLINKS_WARNING", "1")
 os.environ.setdefault("HF_HUB_DISABLE_TELEMETRY", "1")
+# The Xet transfer backend failed mid-download on a real Windows first run
+# ("CAS Client Error"); plain HTTPS downloads are slower to start but reliable.
+os.environ.setdefault("HF_HUB_DISABLE_XET", "1")
 
 
 def _is_clipforge(host: str, port: int) -> bool:
