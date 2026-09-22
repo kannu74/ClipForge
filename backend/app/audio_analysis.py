@@ -67,6 +67,7 @@ def compute_energy_profile(audio_path, window_seconds: float = WINDOW_SECONDS) -
         stderr=subprocess.PIPE,
         creationflags=tools.SUBPROCESS_FLAGS,
     )
+    drain = tools.StderrDrain(proc.stderr)
     rms_parts: list[np.ndarray] = []
     leftover = np.zeros(0, dtype=np.float32)
     total_samples = 0
@@ -85,11 +86,11 @@ def compute_energy_profile(audio_path, window_seconds: float = WINDOW_SECONDS) -
             block = samples[: n * window_size].reshape(n, window_size)
             rms_parts.append(np.sqrt(np.mean(np.square(block, dtype=np.float64), axis=1)).astype(np.float32))
         leftover = samples[n * window_size :].copy()
-    stderr = proc.stderr.read() if proc.stderr else b""
     proc.wait()
+    stderr_text = drain.text()
 
     if proc.returncode != 0 or total_samples == 0:
-        logger.warning("PCM decode failed for %s: %s", audio_path, tools.decode(stderr)[:500])
+        logger.warning("PCM decode failed for %s: %s", audio_path, stderr_text[-500:])
         if total_samples == 0:
             raise UnsupportedMediaError(
                 "Couldn't analyze the audio in that video.",

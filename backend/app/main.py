@@ -27,6 +27,10 @@ async def lifespan(app: FastAPI):
     from app.tools import register_gpu_dlls
 
     init_db()
+    try:
+        pipeline.cleanup_orphans()
+    except Exception:  # pragma: no cover
+        logger.exception("Orphan cleanup failed")
     register_gpu_dlls()
     jobs.start_workers()
     logger.info("ClipForge backend starting. Data dir: %s", settings.data_dir.resolve())

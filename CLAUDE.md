@@ -40,16 +40,21 @@ Errors shown to the user must be actionable and in plain language. Never surface
 
 ## Architecture reference
 
-- `backend/` — FastAPI, Python 3.10+. SQLite for project/clip metadata (`backend/app/db.py`). Project media/artifacts live on disk under `backend/data/projects/<id>/`, never in git.
-- `frontend/` — React + TypeScript + Vite + Tailwind, dark mode by default, talks to the backend over REST (and WebSocket once processing/progress streaming exists).
+- `backend/` — FastAPI, Python 3.10-3.12. SQLite for project + job metadata (`backend/app/db.py`, `jobs.py`). Project media/artifacts live on disk under `backend/data/projects/<id>/`, never in git.
+  - `pipeline.py` — every processing step (download, transcribe, energy, detect, rank, render, preview), each cached on disk and resumable; the background job kinds (`process`, `rerank`, `render`) are registered here. Routers call the same functions synchronously.
+  - `jobs.py` — SQLite-backed queue, two worker threads (`main`, `render`), progress + cancel. Long work never runs inside an HTTP request.
+  - Clip quality: `units.py` (sentence units from word timestamps) → `moments.py` → `ranking.py` + `boundaries.py` (duration fitting, word-accurate cuts). `clip_store.py` owns `clips.json` (edits, overrides, render state).
+  - Video: `captions.py` (ASS/SRT, styles, bundled fonts), `translit.py` (Devanagari→Roman, never translation), `reframe.py` (YuNet faces, split/track/blur/crop plans), `render.py` (ffmpeg + QC). `tools.py` finds FFmpeg (system or bundled imageio-ffmpeg) — always go through it, never `shutil.which("ffmpeg")`.
+- `frontend/` — React + TypeScript + Vite + Tailwind, dark mode. REST + polling of `/api/projects/{id}/jobs`. **`npm run build` outputs to `backend/app/static`, which is committed** so end users need no Node.js — rebuild and commit it whenever the UI changes.
+- Windows is the primary target: `ClipForge.bat` → `backend/run.py`. Use UTF-8 explicitly for every text file (Windows' default code page can't encode Devanagari), keep ffmpeg filter arguments free of absolute paths (drive colons, apostrophes), and never leave a subprocess stderr pipe undrained.
 - Config: `backend/app/config.py` (pydantic-settings, reads `.env`). Add new tunables there, not as hard-coded constants scattered through the pipeline.
 - Logging: `backend/app/logging_config.py`. Use it, don't `print()`.
 
 ## Development environment note
 
-Day-to-day coding on this repo currently happens through a sandboxed build shell that has **no GPU and ~4GB RAM** — it is not representative of the machine ClipForge actually runs on. That means:
-- CPU code paths (transcription with small Whisper models, etc.) can be smoke-tested here.
-- GPU code paths, large models, and Ollama itself cannot be exercised here — they need to be verified on the real machine (or reported by Akshar) before a phase touching them is called done.
+Day-to-day coding on this repo currently happens through sandboxed build shells (a cloud container and a Linux VM on Akshar's PC) that have **no GPU, and no access to youtube.com or huggingface.co** — they are not representative of the machine ClipForge actually runs on. That means:
+- Everything except speech recognition and YouTube download can be tested end-to-end here (the e2e tests inject a scripted transcriber and render real videos).
+- Real Whisper inference, YouTube downloads, GPU/NVENC paths, the Windows launcher and Ollama cannot be exercised here — they need to be verified on the real machine (or reported by Akshar) before a phase touching them is called done.
 - Say explicitly in `DEVELOPMENT_PROGRESS.md` when something is "implemented but not yet verified on real hardware."
 
 ## Testing discipline

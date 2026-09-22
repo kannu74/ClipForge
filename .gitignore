@@ -41,3 +41,8 @@ Thumbs.db
 
 # Sync scratch (Claude build sessions)
 .sync/
+
+# TypeScript build byproducts
+frontend/*.tsbuildinfo
+frontend/vite.config.js
+frontend/vite.config.d.ts

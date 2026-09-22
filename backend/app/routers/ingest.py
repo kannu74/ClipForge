@@ -23,7 +23,9 @@ logger = get_logger("routers.ingest")
 
 
 @router.post("/{project_id}/upload", response_model=ProjectOut)
-async def upload_video(project_id: str, file: UploadFile = File(...)) -> ProjectOut:
+def upload_video(project_id: str, file: UploadFile = File(...)) -> ProjectOut:
+    # Plain `def`: FastAPI runs it in a worker thread, so copying a multi-GB
+    # upload doesn't freeze every other request (progress polling etc.).
     require_project(project_id)
 
     suffix = Path(file.filename or "").suffix.lower()
@@ -39,8 +41,16 @@ async def upload_video(project_id: str, file: UploadFile = File(...)) -> Project
     try:
         with dest.open("wb") as out:
             shutil.copyfileobj(file.file, out, length=4 * 1024 * 1024)
+    except OSError as exc:
+        dest.unlink(missing_ok=True)
+        db.update_project(project_id, status="error", error_message="The upload couldn't be saved.")
+        raise ValidationFailedError(
+            "The upload couldn't be saved.",
+            suggestion="Check there's enough free disk space, then try again.",
+            detail=str(exc),
+        ) from exc
     finally:
-        await file.close()
+        file.file.close()
 
     try:
         pipeline.finish_ingest(project_id, dest, "local", file.filename or dest.name)
@@ -68,6 +78,9 @@ def get_media(project_id: str, request: Request) -> Response:
             "No video has been added to this project yet.",
             suggestion="Upload a video or paste a YouTube URL first.",
         )
+    preview = pipeline.preview_path(project_id)
+    if preview.exists():
+        return ranged_file_response(request, preview, media_type="video/mp4")
     return ranged_file_response(request, source)
 
 

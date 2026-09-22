@@ -29,7 +29,6 @@ time, needs internet); after that it's fully offline for that model size.
 from __future__ import annotations
 
 import argparse
-import shutil
 import sys
 import tempfile
 from pathlib import Path
@@ -50,34 +49,19 @@ def main() -> None:
     parser.add_argument("--content-type", default="horror_gaming", help="Content type for moment detection")
     args = parser.parse_args()
 
-    import yt_dlp
+    from app import youtube
 
     work_dir = Path(tempfile.mkdtemp(prefix="clipforge_real_video_"))
-    video_path = work_dir / "source.mp4"
-
     print(f"== Downloading (first {args.seconds}s)" if args.seconds else "== Downloading (full video)", flush=True)
-    ydl_opts = {
-        "outtmpl": str(video_path.with_suffix(".%(ext)s")),
-        "format": "bestvideo[ext=mp4][height<=1080]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        "merge_output_format": "mp4",
-        "noplaylist": True,
-        "quiet": False,
-    }
-    if args.seconds:
-        ydl_opts["download_ranges"] = yt_dlp.utils.download_range_func(None, [(0, args.seconds)])
-        ydl_opts["force_keyframes_at_cuts"] = True
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(args.url, download=True)
+    def progress(frac: float, msg: str) -> None:
+        print(f"  {msg}", flush=True)
+
+    section = (0.0, float(args.seconds)) if args.seconds else None
+    video_path, info = youtube.download(args.url, work_dir, on_progress=progress, section=section)
     print(f"Title: {info.get('title')}")
     print(f"Channel: {info.get('uploader')}")
     print(f"Full video duration: {info.get('duration')}s")
-
-    downloaded = list(work_dir.glob("source.*"))
-    if not downloaded:
-        print("ERROR: download did not produce a file.")
-        sys.exit(1)
-    video_path = downloaded[0]
 
     print("\n== Metadata (ffprobe)", flush=True)
     meta = media.probe(video_path)
@@ -96,7 +80,12 @@ def main() -> None:
     audio_for_energy = work_dir / "_audio_energy.wav"
     media.extract_audio(video_path, audio_for_energy)
     energy = compute_energy_profile(audio_for_energy)
-    moments, ollama_used = detect_moments(args.content_type, result.segments, energy)
+    # Same sentence-level units the app uses.
+    from app.transcription import to_dict
+    from app.units import units_from_transcript
+
+    units = units_from_transcript(to_dict("cli", result, ""))
+    moments, ollama_used = detect_moments(args.content_type, units, energy)
     print(f"Ollama enrichment used: {ollama_used}")
     print(f"Candidate moments: {len(moments)}\n")
     for m in moments:

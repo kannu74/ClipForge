@@ -55,8 +55,9 @@ CREATE INDEX IF NOT EXISTS idx_jobs_project ON jobs(project_id, created_at);
 ACTIVE = ("queued", "running")
 
 
-class JobCancelled(Exception):
-    pass
+class JobCancelled(BaseException):
+    """BaseException on purpose: generic `except Exception` handlers (e.g.
+    around yt-dlp, which calls our progress hook) must not swallow a cancel."""
 
 
 def _now() -> str:
@@ -108,9 +109,15 @@ def register(kind: str) -> Callable[[JobFn], JobFn]:
     return deco
 
 
-def init_jobs_table() -> None:
+def init_jobs_table() -> list[dict]:
+    """Create the table and fail any job a previous run left unfinished.
+    Returns those jobs so the caller can reset clip/project state."""
     with db.connection() as conn:
         conn.executescript(JOBS_SCHEMA)
+        stale = [
+            _row_to_dict(r)
+            for r in conn.execute("SELECT * FROM jobs WHERE status IN ('running','queued')").fetchall()
+        ]
         # Anything still "running"/"queued" from a previous process can't be
         # resumed mid-flight -- say so instead of leaving it spinning.
         conn.execute(
@@ -121,6 +128,7 @@ def init_jobs_table() -> None:
                 _now(),
             ),
         )
+    return stale
 
 
 def _row_to_dict(row) -> dict:
@@ -179,13 +187,41 @@ def active_jobs(project_id: str, kind: str | None = None) -> list[dict]:
     return [_row_to_dict(r) for r in rows]
 
 
+_cancel_hooks: dict[str, Callable[[dict], None]] = {}
+
+
+def on_cancel_queued(kind: str) -> Callable[[Callable[[dict], None]], Callable[[dict], None]]:
+    """Register cleanup for a job that is cancelled before it ever started
+    (e.g. reset a clip's "queued" render badge)."""
+
+    def deco(fn: Callable[[dict], None]) -> Callable[[dict], None]:
+        _cancel_hooks[kind] = fn
+        return fn
+
+    return deco
+
+
 def request_cancel(job_id: str) -> dict | None:
     job = get_job(job_id)
     if not job:
         return None
     if job["status"] == "queued":
-        _update(job_id, status="cancelled", message="Cancelled.")
-    elif job["status"] == "running":
+        with db.connection() as conn:
+            cur = conn.execute(
+                "UPDATE jobs SET status='cancelled', message='Cancelled.', updated_at=? WHERE id=? AND status='queued'",
+                (_now(), job_id),
+            )
+            claimed_meanwhile = cur.rowcount == 0
+        if not claimed_meanwhile:
+            hook = _cancel_hooks.get(job["kind"])
+            if hook:
+                try:
+                    hook(job)
+                except Exception:  # pragma: no cover
+                    logger.exception("Cancel hook failed for job %s", job_id)
+            return get_job(job_id)
+        job = get_job(job_id) or job
+    if job["status"] == "running":
         with _lock:
             _cancel_flags.add(job_id)
         _update(job_id, message="Cancelling...")

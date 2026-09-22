@@ -401,7 +401,10 @@ function SettingsTab({
 }) {
   const [draft, setDraft] = useState<ProjectSettings>(settings);
   const [section, setSection] = useState<"clips" | "captions" | "framing">("clips");
-  useEffect(() => setDraft(settings), [settings]);
+  // Polling hands us a fresh settings object every 1.5s; only reset the draft
+  // when the saved settings actually change, never over unsaved edits.
+  const settingsKey = JSON.stringify(settings);
+  useEffect(() => setDraft(JSON.parse(settingsKey)), [settingsKey]);
   const dirty = JSON.stringify(draft) !== JSON.stringify(settings);
   const clipsChanged =
     draft.clip_count !== settings.clip_count ||

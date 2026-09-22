@@ -162,6 +162,35 @@ def run_ffmpeg(args: list[str], *, timeout: float | None = None, cwd: str | Path
     )
 
 
+class StderrDrain:
+    """Continuously read a subprocess's stderr on a background thread.
+
+    If nobody reads stderr, a chatty ffmpeg (e.g. decoding a damaged file)
+    fills the OS pipe buffer -- only 4 KB on Windows -- and blocks forever.
+    Keeps the last ~64 KB for error messages."""
+
+    def __init__(self, stream):
+        import threading
+
+        self._chunks: list[bytes] = []
+        self._stream = stream
+        self._thread = threading.Thread(target=self._run, daemon=True)
+        self._thread.start()
+
+    def _run(self) -> None:
+        try:
+            for chunk in iter(lambda: self._stream.read(4096), b""):
+                self._chunks.append(chunk)
+                if len(self._chunks) > 32:
+                    del self._chunks[:16]
+        except Exception:  # pragma: no cover - stream closed
+            pass
+
+    def text(self, timeout: float = 2.0) -> str:
+        self._thread.join(timeout=timeout)
+        return decode(b"".join(self._chunks))
+
+
 def decode(b: bytes | None) -> str:
     return (b or b"").decode("utf-8", errors="replace")
 

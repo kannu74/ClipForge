@@ -26,6 +26,7 @@ import uuid
 from dataclasses import dataclass, field
 
 from app.audio_analysis import EnergyProfile
+from app.translit import to_roman
 from app.llm import OllamaClient
 from app.logging_config import get_logger
 
@@ -64,6 +65,13 @@ KEYWORD_LEXICON: dict[str, list[str]] = {
 
 _CAPS_WORD_RE = re.compile(r"\b[A-Z]{2,}\b")
 
+# Whole-word matching, so "ace" doesn't fire on "place" or "rip" on "trip".
+_KEYWORD_RES: dict[str, re.Pattern] = {
+    kw: re.compile(r"(?<![a-z0-9])" + re.escape(kw) + r"(?![a-z0-9])")
+    for kws in KEYWORD_LEXICON.values()
+    for kw in kws
+}
+
 
 @dataclass
 class Moment:
@@ -83,10 +91,13 @@ class Moment:
 
 
 def _textual_signals(text: str, allowed_categories: list[str]) -> dict:
-    lower = text.lower()
+    # Whisper often writes the Hindi parts of Hinglish in Devanagari; match
+    # the (Roman) lexicon against a transliterated copy so "भाई" counts as
+    # "bhai". The transcript itself is never changed.
+    lower = to_roman(text).lower()
     matches: dict[str, list[str]] = {}
     for category in allowed_categories:
-        hits = [kw for kw in KEYWORD_LEXICON.get(category, []) if kw in lower]
+        hits = [kw for kw in KEYWORD_LEXICON.get(category, []) if _KEYWORD_RES[kw].search(lower)]
         if hits:
             matches[category] = hits
     return {

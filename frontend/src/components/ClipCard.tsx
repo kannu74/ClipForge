@@ -37,14 +37,16 @@ export default function ClipCard({
   const [showWhy, setShowWhy] = useState(false);
   const version = r.rendered_at ?? "";
   const duration = clip.end - clip.start;
-  const rendering = r.status === "rendering" || r.status === "queued" || job?.status === "running" || job?.status === "queued";
+  // Trust the live job list: a "queued"/"rendering" badge without a live job
+  // means the render was interrupted, so offer to render again.
+  const rendering = job?.status === "running" || job?.status === "queued";
   const aspectClass =
     r.width && r.height ? (r.width > r.height ? "aspect-video" : r.width === r.height ? "aspect-square" : "aspect-[9/16]") : "aspect-[9/16]";
 
   return (
     <div className="flex flex-col overflow-hidden rounded-2xl border border-surface-border bg-surface-raised">
       <div className={cx("relative w-full bg-black", aspectClass)}>
-        {r.status === "done" && !rendering ? (
+        {r.status === "done" && !rendering && r.file ? (
           <video
             key={version}
             src={api.clipVideoUrl(projectId, clip.id, version)}

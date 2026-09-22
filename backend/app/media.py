@@ -6,6 +6,7 @@ binaries are located on a fresh machine).
 from __future__ import annotations
 
 import json
+import re
 import subprocess
 from dataclasses import dataclass, asdict
 from fractions import Fraction
@@ -150,6 +151,25 @@ def _rotation_from_stream(stream: dict) -> int:
     return 0
 
 
+_ROTATE_RE = re.compile(r"(?:rotate\s*:\s*(-?\d+))|(?:rotation of (-?[\d.]+) degrees)")
+
+
+def _rotation_from_ffmpeg(path: Path) -> int:
+    """Rotation flag of the first video stream, read from `ffmpeg -i` output
+    (works with the bundled ffmpeg, which has no ffprobe)."""
+    try:
+        r = tools.run_ffmpeg(["-i", str(path)], timeout=30)
+    except Exception:
+        return 0
+    m = _ROTATE_RE.search(tools.decode(r.stderr))
+    if not m:
+        return 0
+    try:
+        return int(round(float(m.group(1) or m.group(2)))) % 360
+    except (TypeError, ValueError):
+        return 0
+
+
 def _probe_pyav(path: Path) -> MediaMetadata:
     try:
         import av  # type: ignore
@@ -178,6 +198,10 @@ def _probe_pyav(path: Path) -> MediaMetadata:
                 duration = 0.0
             rate = v.average_rate or v.guessed_rate
             fps = round(float(rate), 3) if rate else 0.0
+            # Phone videos are often stored sideways with a rotation flag;
+            # ffmpeg auto-rotates when decoding, so report the upright size.
+            if _rotation_from_ffmpeg(path) in (90, 270):
+                width, height = height, width
             return MediaMetadata(
                 duration_seconds=round(duration, 3),
                 width=width,

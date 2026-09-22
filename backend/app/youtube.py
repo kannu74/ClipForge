@@ -64,6 +64,7 @@ def download(
     url: str,
     out_dir: Path,
     on_progress: Callable[[float, str], None] | None = None,
+    section: tuple[float, float | None] | None = None,
 ) -> tuple[Path, dict]:
     """Download the video locally with yt-dlp. Returns (file_path, info_dict).
     Raises ExternalToolMissingError / ValidationFailedError with plain-language
@@ -125,6 +126,14 @@ def download(
     browser = (settings.youtube_cookies_browser or "").strip().lower()
     if browser:
         ydl_opts["cookiesfrombrowser"] = (browser,)
+    if section is not None:
+        # Only fetch the part the creator asked for -- a 20-minute slice of a
+        # 4-hour stream downloads in a fraction of the time.
+        from yt_dlp.utils import download_range_func
+
+        s_start, s_end = section
+        ydl_opts["download_ranges"] = download_range_func(None, [(float(s_start or 0), float(s_end) if s_end else float("inf"))])
+        ydl_opts["force_keyframes_at_cuts"] = True
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:

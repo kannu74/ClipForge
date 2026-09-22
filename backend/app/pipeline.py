@@ -86,8 +86,13 @@ def finish_ingest(project_id: str, video_path: Path, source_type: str, source_re
         storage.moments_path(project_id),
         storage.clips_path(project_id),
         storage.energy_path(project_id),
+        storage.analysis_dir(project_id) / "preview.mp4",
     ):
         p.unlink(missing_ok=True)
+    frames = storage.analysis_dir(project_id) / "frames"
+    if frames.exists():
+        for f in frames.iterdir():
+            f.unlink(missing_ok=True)
     logger.info("Ingested source for project %s (%s, %.1fs)", project_id, source_type, metadata.duration_seconds)
 
 
@@ -100,12 +105,17 @@ def clear_source_dir(project_id: str) -> Path:
     return src_dir
 
 
-def do_download(project_id: str, url: str, progress: ProgressFn = _noop) -> Path:
+def do_download(
+    project_id: str,
+    url: str,
+    progress: ProgressFn = _noop,
+    section: tuple[float, float | None] | None = None,
+) -> Path:
     youtube_module.extract_video_id(url)
     src_dir = clear_source_dir(project_id)
     db.update_project(project_id, status="ingesting", source_type="youtube", source_reference=url)
     try:
-        video_path, info = youtube_module.download(url, src_dir, on_progress=progress)
+        video_path, info = youtube_module.download(url, src_dir, on_progress=progress, section=section)
         final_path = src_dir / f"source{video_path.suffix}"
         if video_path != final_path:
             video_path.replace(final_path)
@@ -354,7 +364,7 @@ def do_render(project_id: str, clip_id: str, progress: ProgressFn = _noop) -> di
             project_id, clip, units, cap_cfg, ref_cfg, ps.render, source, project_meta(project_id), progress
         )
     except jobs.JobCancelled:
-        clip_store.update_clip(project_id, clip_id, {"render": {"status": "none"}})
+        _reset_clip_render(project_id, clip_id)
         raise
     except Exception as exc:
         from app.errors import ClipForgeError
@@ -367,7 +377,116 @@ def do_render(project_id: str, clip_id: str, progress: ProgressFn = _noop) -> di
     return info
 
 
+# --- browser preview proxy ---
+
+BROWSER_VIDEO_CODECS = {"h264", "vp8", "vp9", "av1"}
+BROWSER_AUDIO_CODECS = {None, "aac", "mp3", "opus", "vorbis"}
+BROWSER_CONTAINERS = {".mp4", ".m4v", ".webm", ".mov"}
+
+
+def preview_path(project_id: str) -> Path:
+    return storage.analysis_dir(project_id) / "preview.mp4"
+
+
+def needs_preview(project_id: str) -> bool:
+    src = storage.find_source_file(project_id)
+    if src is None:
+        return False
+    meta = project_meta(project_id)
+    return not (
+        src.suffix.lower() in BROWSER_CONTAINERS
+        and meta.get("video_codec") in BROWSER_VIDEO_CODECS
+        and meta.get("audio_codec") in BROWSER_AUDIO_CODECS
+    )
+
+
+def ensure_preview(project_id: str, progress: ProgressFn = _noop) -> Path | None:
+    if not needs_preview(project_id):
+        return None
+    out = preview_path(project_id)
+    if out.exists():
+        return out
+    src = require_source(project_id)
+    meta = project_meta(project_id)
+    duration = float(meta.get("duration_seconds") or 1.0)
+    tmp = out.with_name("preview.tmp.mp4")
+    if meta.get("video_codec") == "h264" and meta.get("audio_codec") in ("aac", "mp3", None):
+        args = ["-y", "-i", str(src), "-map", "0:v:0", "-map", "0:a:0?", "-c", "copy", "-movflags", "+faststart", tmp.name]
+        label = "Preparing browser preview"
+    else:
+        args = [
+            "-y", "-i", str(src), "-map", "0:v:0", "-map", "0:a:0?",
+            "-vf", "scale=-2:'min(720,ih)'", "-c:v", "libx264", "-preset", "ultrafast", "-crf", "28",
+            "-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", tmp.name,
+        ]
+        label = "Converting a preview copy for the browser"
+    code, err = render._run_with_progress(args, duration, out.parent, progress, label)
+    if code != 0 or not tmp.exists():
+        tmp.unlink(missing_ok=True)
+        logger.warning("Preview conversion failed: %s", err[-800:])
+        return None
+    tmp.replace(out)
+    return out
+
+
 # --- background jobs ---
+
+def _reset_clip_render(project_id: str, clip_id: str) -> None:
+    try:
+        clip = clip_store.get_clip(project_id, clip_id)
+    except Exception:
+        return
+    if (clip.get("render") or {}).get("status") in ("queued", "rendering"):
+        # Keep an earlier finished render if the files are still there.
+        prev = clip.get("render") or {}
+        if prev.get("file") and (storage.renders_dir(project_id) / prev["file"]).exists():
+            clip_store.update_clip(project_id, clip_id, {"render": {**prev, "status": "done"}})
+        else:
+            clip_store.update_clip(project_id, clip_id, {"render": {"status": "none"}})
+
+
+@jobs.on_cancel_queued("render")
+def _render_cancelled_before_start(job: dict) -> None:
+    if job.get("project_id") and job["params"].get("clip_id"):
+        _reset_clip_render(job["project_id"], job["params"]["clip_id"])
+
+
+def recover_interrupted(stale_jobs: list[dict]) -> None:
+    """After a restart: jobs that were queued/running are gone, so undo the
+    'queued'/'rendering'/'processing' badges they left on clips and projects."""
+    for j in stale_jobs:
+        pid = j.get("project_id")
+        if not pid or db.get_project(pid) is None:
+            continue
+        try:
+            if j["kind"] == "render" and j["params"].get("clip_id"):
+                _reset_clip_render(pid, j["params"]["clip_id"])
+            elif j["kind"] in ("process", "rerank"):
+                has_source = storage.find_source_file(pid) is not None
+                db.update_project(
+                    pid,
+                    status="ready" if has_source else "error",
+                    error_message=None if has_source else "Interrupted before the video finished downloading.",
+                )
+        except Exception:  # pragma: no cover - best effort
+            logger.exception("Couldn't reset state for interrupted job %s", j.get("id"))
+
+
+def cleanup_orphans() -> None:
+    """Finish deletes that couldn't complete earlier (Windows keeps files
+    locked while ffmpeg or the browser has them open). Only folders that a
+    delete explicitly marked are touched -- never anything else."""
+    from app.config import settings as app_settings
+
+    root = app_settings.projects_dir
+    if not root.exists():
+        return
+    import shutil
+
+    for d in root.iterdir():
+        if d.is_dir() and (d / ".deleted").exists() and db.get_project(d.name) is None:
+            shutil.rmtree(d, ignore_errors=True)
+
 
 def cancel_renders(project_id: str) -> None:
     for j in jobs.active_jobs(project_id, "render"):
@@ -387,8 +506,34 @@ def job_process(ctx: jobs.JobContext) -> dict:
         url = params.get("youtube_url")
         if url:
             ctx.update(0.0, "Starting download...", stage="download")
-            do_download(pid, url, ctx.sub(0.0, 0.15, "download"))
+            section = None
+            if ps.range_start or ps.range_end:
+                section = (ps.range_start or 0.0, ps.range_end)
+            downloaded = False
+            if section:
+                try:
+                    do_download(pid, url, ctx.sub(0.0, 0.15, "download"), section=section)
+                    # The file now IS the chosen part: process all of it, and
+                    # remember where it came from for the creator's reference.
+                    ps = project_settings.update(pid, {"range_start": None, "range_end": None})
+                    manifest = storage.read_manifest(pid) or {}
+                    manifest["source_section"] = list(section)
+                    storage.write_manifest(pid, manifest)
+                    downloaded = True
+                except jobs.JobCancelled:
+                    raise
+                except Exception as exc:
+                    logger.warning("Section download failed (%s); downloading the full video instead.", exc)
+                    ctx.update(0.0, "Downloading the full video instead of just the selected part...")
+            if not downloaded:
+                do_download(pid, url, ctx.sub(0.0, 0.15, "download"))
         require_source(pid)
+        if project_meta(pid).get("has_audio") is False:
+            db.update_project(pid, status="ready", error_message=None)
+            raise ValidationFailedError(
+                "This video has no audio track, so ClipForge can't find moments from what's said.",
+                suggestion="You can still make clips by hand: open “Source & range” and use “Cut a clip yourself”.",
+            )
 
         ctx.update(0.15, "Preparing transcription...", stage="transcribe")
         do_transcribe(pid, ctx.sub(0.15, 0.70, "transcribe"), force=bool(params.get("force_transcribe")))
@@ -405,6 +550,14 @@ def job_process(ctx: jobs.JobContext) -> dict:
                 clip_store.update_clip(pid, cid, {"render": {"status": "queued"}})
                 jobs.enqueue("render", pid, {"clip_id": cid}, queue="render")
                 rendered += 1
+        # Some formats (MKV, AVI, HEVC...) don't play in the browser; make a
+        # lightweight preview copy for the editor while the clips render.
+        try:
+            ensure_preview(pid, ctx.sub(0.95, 1.0, "preview"))
+        except jobs.JobCancelled:
+            raise
+        except Exception as exc:
+            logger.warning("Preview proxy failed for %s: %s", pid, exc)
         db.update_project(pid, status="ready")
         msg = f"Found {len(auto_ids)} clips." + (f" Rendering {rendered} videos..." if rendered else "")
         ctx.update(1.0, msg, stage="done")
@@ -415,9 +568,12 @@ def job_process(ctx: jobs.JobContext) -> dict:
     except Exception as exc:
         from app.errors import ClipForgeError
 
-        db.update_project(
-            pid, status="error", error_message=exc.message if isinstance(exc, ClipForgeError) else "Processing failed."
-        )
+        if storage.find_source_file(pid) is not None and isinstance(exc, ValidationFailedError):
+            db.update_project(pid, status="ready")
+        else:
+            db.update_project(
+                pid, status="error", error_message=exc.message if isinstance(exc, ClipForgeError) else "Processing failed."
+            )
         raise
 
 
@@ -446,7 +602,17 @@ def job_render(ctx: jobs.JobContext) -> dict:
     assert pid
     clip_id = ctx.params["clip_id"]
     ctx.update(0.0, "Starting render...", stage="render")
-    info = do_render(pid, clip_id, ctx.sub(0.0, 1.0, "render"))
+    try:
+        info = do_render(pid, clip_id, ctx.sub(0.0, 1.0, "render"))
+    except NotFoundError:
+        # The clip (or project) was deleted / re-picked while this render
+        # waited -- that's a cancellation, not a failure. Tidy up its files.
+        try:
+            for p in storage.renders_dir(pid).glob(f"{clip_id}.*"):
+                p.unlink(missing_ok=True)
+        except Exception:
+            pass
+        raise jobs.JobCancelled()
     return {"clip_id": clip_id, "file": info.get("file"), "qc": info.get("qc")}
 
 

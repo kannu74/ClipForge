@@ -111,12 +111,18 @@ def delete_project_storage(project_id: str) -> None:
         # a few times rather than failing the delete outright.
         import time
 
-        for attempt in range(5):
+        for attempt in range(6):
             try:
                 shutil.rmtree(base)
                 return
             except OSError:
-                if attempt == 4:
+                if attempt == 5:
                     shutil.rmtree(base, ignore_errors=True)
+                    if base.exists():
+                        # Something still holds a file open; finish at next start.
+                        try:
+                            (base / ".deleted").write_text("pending delete", encoding="utf-8")
+                        except OSError:
+                            pass
                     return
                 time.sleep(0.5)

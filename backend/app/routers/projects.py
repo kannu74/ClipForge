@@ -102,6 +102,13 @@ def delete_project(project_id: str) -> None:
         raise NotFoundError("That project doesn't exist.")
     jobs.cancel_project_jobs(project_id)
     db.delete_project(project_id)
+    # Give running jobs a moment to notice the cancel and release their files.
+    import time
+
+    for _ in range(40):
+        if not jobs.active_jobs(project_id) or not any(j["status"] == "running" for j in jobs.active_jobs(project_id)):
+            break
+        time.sleep(0.25)
     storage.delete_project_storage(project_id)
     logger.info("Deleted project %s", project_id)
     return None

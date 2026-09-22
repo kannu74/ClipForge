@@ -171,11 +171,12 @@ class FasterWhisperEngine:
         device = settings.whisper_device
         if on_progress:
             on_progress(0.0, f"Loading speech model '{model_size}' (the first run downloads it once)...")
-        model = self._get_model(model_size, device)
         try:
+            model = self._get_model(model_size, device)
             return self._run(model, audio_path, model_size, language, on_progress)
         except Exception as exc:
-            if device == "cpu" or not _is_gpu_runtime_failure(exc):
+            gpu_problem = isinstance(exc, InsufficientResourcesError) or _is_gpu_runtime_failure(exc)
+            if device == "cpu" or not gpu_problem:
                 raise
             # CLAUDE.md: never crash because the GPU path isn't usable -- fall
             # back to CPU and say why in plain language.

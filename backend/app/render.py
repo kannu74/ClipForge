@@ -169,7 +169,7 @@ def render_clip(
     )
     fc = rplan.filter_complex
     if ass_path is not None:
-        fontsdir = tools.escape_filter_path(captions.FONTS_DIR)
+        fontsdir = captions.fonts_dir_for_render(rdir)
         fc = fc.replace("[vout]", "[vpre]") + f";[vpre]subtitles={ass_path.name}:fontsdir={fontsdir}[vout]"
 
     fps = float(meta.get("fps") or 30.0)

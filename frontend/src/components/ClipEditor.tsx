@@ -88,14 +88,22 @@ export default function ClipEditor({
     setSaving(true);
     setError(null);
     try {
-      if (wordsDirty && words) {
-        await api.putWords(project.id, clip.id, words);
+      // 1. Range first, so the server can fill caption words for any newly
+      //    included stretch before we apply the creator's word edits.
+      if (rangeChanged) {
+        await api.patchClip(project.id, clip.id, { start, end });
       }
+      // 2. Word edits, re-applied on top of the (possibly extended) word list.
+      if (wordsDirty && words) {
+        const edits = new Map(words.map((w) => [w.start.toFixed(2), w.word]));
+        const fresh = rangeChanged ? (await api.getWords(project.id, clip.id)).words : words;
+        const merged = fresh.map((w) => ({ ...w, word: edits.get(w.start.toFixed(2)) ?? w.word }));
+        await api.putWords(project.id, clip.id, merged);
+      }
+      // 3. Everything else (+ render).
       const capOverride = same(cap, settings.captions) ? null : cap;
       const refOverride = same(ref, settings.reframe) ? null : ref;
       await api.patchClip(project.id, clip.id, {
-        start: rangeChanged ? start : undefined,
-        end: rangeChanged ? end : undefined,
         title: title !== clip.title ? title : undefined,
         ...(capChanged
           ? capOverride
@@ -294,7 +302,10 @@ export default function ClipEditor({
                     })}
                   </div>
                 )}
-                <p className="text-xs text-slate-500">Clear a word's box to remove it from the captions.</p>
+                <p className="text-xs text-slate-500">
+                  Clear a word's box to remove it from the captions.
+                  {rangeChanged && " Words for a newly added part of the clip appear after you save."}
+                </p>
                 {(wordsEdited || wordsDirty) && (
                   <button
                     className="text-xs text-slate-500 underline"

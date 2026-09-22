@@ -200,3 +200,23 @@ def test_settings_validation(client):
     assert ok.status_code == 200 and ok.json()["captions"]["highlight_color"] == "#00FF00"
     bad = client.patch(f"/api/projects/{pid}/settings", json={"captions": {"style": "comic-sans"}})
     assert bad.status_code == 400
+
+
+def test_non_browser_format_gets_a_preview_copy(client, gaming_video, monkeypatch, tmp_path):
+    """An MKV upload plays in the editor via an auto-made MP4 preview."""
+    monkeypatch.setattr(transcription_module, "FasterWhisperEngine", ScriptedEngine)
+    mkv = tmp_path / "stream.mkv"
+    subprocess.run(["ffmpeg", "-y", "-i", str(gaming_video), "-t", "12", "-c", "copy", str(mkv)],
+                   capture_output=True, check=True, timeout=60)
+    pid = client.post("/api/projects", json={"name": "mkv", "settings": {"auto_render": False}}).json()["id"]
+    with mkv.open("rb") as f:
+        assert client.post(f"/api/projects/{pid}/upload", files={"file": ("stream.mkv", f, "video/x-matroska")}).status_code == 200
+    client.post(f"/api/projects/{pid}/process", json={})
+    assert jobs.wait_idle(timeout=120)
+    from app import pipeline
+
+    assert pipeline.preview_path(pid).exists()
+    r = client.get(f"/api/projects/{pid}/media", headers={"Range": "bytes=0-1023"})
+    assert r.status_code == 206 and r.headers["content-type"] == "video/mp4"
+    meta = media.probe(pipeline.preview_path(pid))
+    assert meta.video_codec == "h264" and abs(meta.duration_seconds - 12) < 1

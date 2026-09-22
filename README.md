@@ -1,70 +1,69 @@
 # ClipForge
 
-A local-first AI video clipping tool for gaming, commentary, reactions, comedy, horror-gaming and Hinglish/Hindi/English creator content. Turns long-form gameplay or YouTube videos into curated, captioned, vertically-reframed short clips — with the whole AI pipeline (transcription, moment detection, ranking, captioning) running on your own machine by default.
+Local-first AI clipping for creators — an OpusClip-style tool that runs entirely on your own computer, built for gaming, horror, comedy and reaction videos, and Hinglish / Hindi / English speech.
 
-**Status:** Phase 0 (Foundation) — see `DEVELOPMENT_PROGRESS.md` for the authoritative, up-to-date phase status.
+Paste a YouTube link or upload a video → ClipForge transcribes it, finds the best moments, cuts them at natural start/end points, burns in word-by-word captions, reframes to 9:16 (with a facecam split for gaming), and gives you ready-to-post MP4s. Every clip can be trimmed, re-captioned and re-framed afterwards.
 
-## Why local-first
+Nothing is uploaded anywhere. The only network use is downloading a YouTube video you paste, and a one-time download of the speech model.
 
-ClipForge does not require a cloud AI subscription. Transcription, content understanding, moment detection/ranking, and caption generation are designed to run against local models (faster-whisper for speech-to-text, Ollama for LLM reasoning). The only network access needed is to fetch a YouTube video when you give it a URL, or to download models the first time. After that, it works offline.
+## Quick start (Windows)
 
-## Architecture
+1. Install **Python 3.12** from [python.org](https://www.python.org/downloads/) — tick **“Add python.exe to PATH”** in the installer. (3.10 and 3.11 also work; 3.13+ doesn't yet.)
+2. Double-click **`ClipForge.bat`**.
+   - The first run sets everything up (a few minutes: it installs the components, including FFmpeg and the YouTube downloader).
+   - Your browser opens at `http://127.0.0.1:8000`. Keep the black ClipForge window open while you work; close it to stop.
+3. Paste a YouTube link (or upload a file), pick the video type, press **Get clips**.
 
-```
-clipper/
-  backend/     FastAPI app (Python) — API, video processing, AI pipeline, SQLite project storage
-  frontend/    React + Vite + TypeScript + Tailwind — local web UI (dark mode)
-  docs/        Design notes, phase specs
-  scripts/     Setup/dev launch scripts
-  DEVELOPMENT_PROGRESS.md   Live phase-by-phase status. Read this before starting work.
-  CLAUDE.md    Working agreement / conventions for AI-assisted development on this repo.
-```
+The first transcription also downloads the speech model once (~0.5 GB for the default). After that everything works offline, apart from YouTube downloads.
 
-The backend and frontend are two local processes talking over HTTP/WebSocket on localhost. Nothing leaves your machine except an optional YouTube fetch.
+**NVIDIA GPU?** Run `scripts\enable-gpu.bat` once (downloads ~1.5 GB of NVIDIA libraries). Transcription gets much faster, and ClipForge picks a more accurate model automatically. If the GPU ever fails, it falls back to the CPU on its own.
 
-## Requirements
+On macOS/Linux: `cd backend && python3 -m venv .venv && .venv/bin/pip install -r requirements.txt && .venv/bin/python run.py`.
 
-- Python 3.10+
-- Node.js 18+
-- FFmpeg on PATH (`ffmpeg -version` should work)
-- [Ollama](https://ollama.com) installed and at least one model pulled (e.g. `ollama pull llama3.1`) — used for content understanding / moment ranking. ClipForge will run without it but LLM-assisted features will be unavailable until it's configured.
-- Optional: NVIDIA GPU + CUDA for faster transcription/inference. ClipForge detects your hardware and falls back to CPU automatically — it will not crash without a GPU, just run slower.
+## What you get
 
-## Getting started (development)
+- **Input:** YouTube links (videos, lives, shorts) or any video file (MP4, MOV, MKV, WEBM, AVI, …). You can process just part of a long stream; for YouTube, only that part is downloaded.
+- **Clip finding:** audio-energy spikes combined with Hinglish/English reaction and gaming vocabulary, tuned per content type (gaming, horror, funny, reaction, comedy, commentary, storytelling). Clips are fitted to your chosen length (10–20s, 20–35s, 30–60s, 60–90s or custom) with setup before the peak and the payoff after it. Cuts land between words, never mid-word. Each clip gets a 1–99 score, a title and a plain-language “why this clip”. If there aren't enough strong moments, backup picks are clearly marked — nothing is padded silently.
+- **Captions:** six styles — Bold Pop, Karaoke, Clean, Boxed, Horror, Neon — with word-by-word highlighting, hype-word colouring, position, size, words per line, colours and UPPERCASE. Hindi in Devanagari renders correctly. An optional **Roman Hinglish** mode turns “भाई ये क्या है” into “bhai ye kya hai” (transliteration only — words are never translated). An SRT file comes with every clip.
+- **Framing:** 9:16, 1:1, 4:5 or 16:9.
+  - **Auto** picks a facecam split, face tracking or a safe full frame.
+  - **Facecam split:** webcam on top, gameplay below, captions on the seam.
+  - **Follow face:** a smooth crop that follows the speaker.
+  - **Full frame** over a blurred background.
+  - **Crop** and **Letterbox**.
+  - You can mark the facecam area yourself.
+- **Editing:** trim on a timeline (±0.2s / ±1s nudges or drag handles), fix caption words, change caption style or framing per clip, retitle, cut your own clips from the source, then re-render.
+- **Output:** H.264/AAC MP4s with loudness normalised for Shorts/Reels/TikTok (-14 LUFS) and 1080p or 720p output. Downloads per clip or all at once as a zip. An automatic quality check flags wrong length, silent audio or black frames.
 
-### Backend
+## Settings
 
-```bash
-cd backend
-python -m venv .venv
-# Windows: .venv\Scripts\activate
-source .venv/bin/activate
-pip install -r requirements.txt
-cp .env.example .env
-uvicorn app.main:app --reload --port 8000
-```
+Advanced settings live in `backend/.env` (created on first run from `.env.example`):
 
-Backend runs at `http://localhost:8000`. Interactive API docs at `http://localhost:8000/docs`.
+| Setting | What it does |
+|---|---|
+| `CLIPFORGE_WHISPER_MODEL_SIZE` | `auto` (default) · `small` · `medium` · `large-v3-turbo` · `large-v3`. Also selectable per project in the UI. |
+| `CLIPFORGE_WHISPER_DEVICE` | `auto` / `cuda` / `cpu` |
+| `CLIPFORGE_WHISPER_INITIAL_PROMPT` | Optional: game names or slang, to help spelling |
+| `CLIPFORGE_YOUTUBE_COOKIES_BROWSER` | `firefox` / `edge` / `chrome`: use your browser's YouTube login if YouTube asks to “confirm you're not a bot” |
+| `CLIPFORGE_VIDEO_ENCODER` | `auto` (NVIDIA NVENC if available, else x264) / `x264` / `nvenc` |
+| `CLIPFORGE_OLLAMA_HOST`, `CLIPFORGE_OLLAMA_MODEL` | Optional local LLM (Ollama) for better titles and moment checks. ClipForge works fully without it. |
+| `CLIPFORGE_DATA_DIR` | Where projects, videos and clips are stored (default `backend/data`) |
 
-### Frontend
+## Troubleshooting
 
-```bash
-cd frontend
-npm install
-cp .env.example .env
-npm run dev
-```
+- **YouTube download fails:** close ClipForge and run `ClipForge.bat` again. If the component list changed it reinstalls, and `yt-dlp` updates often. If YouTube asks for a sign-in check, set `CLIPFORGE_YOUTUBE_COOKIES_BROWSER`. You can always download the video yourself and upload the file.
+- **Slow transcription:** that is normal on CPU (roughly real time). Use “Only use part of the video”, pick “Fast” accuracy, or enable the GPU.
+- **Something failed:** the app shows a plain-language reason. Technical details are in `backend/data/logs/clipforge.log`.
+- **Port busy:** ClipForge uses the next free port automatically. The window shows the address.
 
-Frontend runs at `http://localhost:5173` and talks to the backend at the URL in `.env`.
+## For developers
 
-### One-shot (Windows)
+- Backend: FastAPI + SQLite in `backend/app`. `pipeline.py` holds the end-to-end steps and `jobs.py` the background job queue. `captions.py`, `reframe.py` and `render.py` form the video pipeline. Tests: `cd backend && python -m pytest -q`.
+- Frontend: React + TypeScript + Vite + Tailwind in `frontend/`. `npm run build` writes to `backend/app/static`, which the backend serves, so end users never need Node. `scripts/start-dev.bat` (or `npm run dev`) gives hot reload with an `/api` proxy.
+- Working agreement and roadmap: `CLAUDE.md`. Honest per-phase status: `DEVELOPMENT_PROGRESS.md`.
 
-`scripts/start-dev.bat` launches both in separate windows once the above setup has been done once.
+## Licences of bundled assets
 
-## Project data
-
-Each project's source video, transcript, detected moments, generated clips, and exports live under `backend/data/projects/<project_id>/`. This directory is intentionally git-ignored — it's your media, not source code.
-
-## Development philosophy
-
-Read `CLAUDE.md` before making changes. In short: clip quality is the product. Do not add features that don't move clip quality, boundary quality, transcription quality, or caption quality forward. No placeholder AI results once a phase is being implemented — if something isn't real yet, it's marked as such in the UI and in `DEVELOPMENT_PROGRESS.md`, not faked.
+- Caption fonts (Mukta, Hind, Anton, Bebas Neue): SIL Open Font License — `backend/app/assets/fonts/OFL.txt`.
+- YuNet face detector (OpenCV Zoo): MIT — `backend/app/assets/models/YUNET_LICENSE.txt`.
+- The test face image is a public-domain NASA photo.

@@ -94,10 +94,18 @@ def patch_clip(project_id: str, clip_id: str, payload: ClipPatchRequest) -> Clip
             patch["transcript_excerpt"] = _excerpt(project_id, start, end) or clip["transcript_excerpt"]
             patch["duration_explanation"] = f"Trimmed by you to {end - start:.0f} seconds."
             if clip.get("caption_words"):
-                # Keep edited caption text, but drop words now outside the clip.
-                patch["caption_words"] = [
-                    w for w in clip["caption_words"] if w["end"] > start and w["start"] < end
-                ] or None
+                # Keep the creator's edited words inside the new range, and
+                # fill any newly-included stretch with transcript words so an
+                # extended clip isn't left without captions.
+                old_s, old_e = clip["start"], clip["end"]
+                kept = [w for w in clip["caption_words"] if w["end"] > start and w["start"] < end]
+                t = storage.read_json(storage.transcript_path(project_id)) or {"segments": []}
+                fill = [
+                    {"word": w.word, "start": w.start, "end": w.end}
+                    for w in words_in_range(units_from_transcript(t), start, end)
+                    if (w.start + w.end) / 2 < old_s or (w.start + w.end) / 2 > old_e
+                ]
+                patch["caption_words"] = sorted(kept + fill, key=lambda w: w["start"]) or None
     if payload.title is not None:
         patch["title"] = payload.title.strip()
     if payload.clear_caption_overrides:
@@ -187,12 +195,16 @@ def render_all(project_id: str, only_missing: bool = True) -> list[JobOut]:
     if payload is None:
         raise NotFoundError("No clips yet.", suggestion="Process the video first.")
     payload = clip_store.with_staleness(project_id, payload)
+    from app import jobs
+
+    active = {j["params"].get("clip_id") for j in jobs.active_jobs(project_id, "render")}
     out = []
     for c in payload["clips"]:
         r = c.get("render") or {}
-        if only_missing and r.get("status") == "done" and not r.get("stale"):
+        if c["id"] in active:
             continue
-        if r.get("status") in ("queued", "rendering"):
+        # "queued"/"rendering" with no live job means it was interrupted.
+        if only_missing and r.get("status") == "done" and not r.get("stale"):
             continue
         out.append(JobOut(**pipeline.enqueue_render(project_id, c["id"])))
     return out
@@ -245,8 +257,17 @@ def clips_zip(project_id: str, request: Request) -> Response:
     payload = clip_store.load(project_id)
     if payload is None:
         raise NotFoundError("No clips yet.", suggestion="Process the video first.")
+    import uuid
+
+    from starlette.background import BackgroundTask
+
     rdir = storage.renders_dir(project_id)
-    zip_path = rdir / "_all_clips.zip"
+    for old in rdir.glob("_zip_*.zip"):  # leftovers from interrupted downloads
+        try:
+            old.unlink()
+        except OSError:
+            pass
+    zip_path = rdir / f"_zip_{uuid.uuid4().hex[:8]}.zip"
     used: set[str] = set()
     n = 0
     # Written to disk (not memory): ten 1080p clips can be several hundred MB.
@@ -270,7 +291,16 @@ def clips_zip(project_id: str, request: Request) -> Response:
         zip_path.unlink(missing_ok=True)
         raise NotFoundError("No rendered clips to download yet.", suggestion="Render your clips first.")
     zip_name = _safe_name(row["name"], "clips") + " - clips.zip"
-    return ranged_file_response(request, zip_path, media_type="application/zip", download_name=zip_name)
+    resp = ranged_file_response(request, zip_path, media_type="application/zip", download_name=zip_name)
+
+    def _cleanup() -> None:
+        try:
+            zip_path.unlink()
+        except OSError:
+            pass  # Windows may still hold it; removed on the next download
+
+    resp.background = BackgroundTask(_cleanup)
+    return resp
 
 
 @router.post("/{project_id}/clips/refresh-excerpts", response_model=ClipsOut)

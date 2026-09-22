@@ -58,7 +58,11 @@ def init_db() -> None:
         conn.close()
     from app.jobs import init_jobs_table
 
-    init_jobs_table()
+    stale = init_jobs_table()
+    if stale:
+        from app.pipeline import recover_interrupted
+
+        recover_interrupted(stale)
 
 
 @contextmanager

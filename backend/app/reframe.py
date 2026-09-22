@@ -109,6 +109,7 @@ def sample_faces(src: Path, start: float, end: float, src_w: int, src_h: int) ->
         "-an", "-vf", f"fps={SAMPLE_FPS},scale={aw}:{ah}", "-f", "rawvideo", "-pix_fmt", "bgr24", "pipe:1",
     ]
     proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, creationflags=tools.SUBPROCESS_FLAGS)
+    tools.StderrDrain(proc.stderr)
     detector = cv2.FaceDetectorYN.create(str(MODEL_PATH), "", (aw, ah), 0.6, 0.3, 50)
     frame_bytes = aw * ah * 3
     samples: list[FaceSample] = []

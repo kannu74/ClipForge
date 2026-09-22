@@ -21,7 +21,9 @@ export default function PipelineProgress({
 }) {
   const activeRenders = renderJobs.filter((j) => j.status === "queued" || j.status === "running");
   const isRenderOnly = !job && activeRenders.length > 0;
-  const stage = job ? job.stage ?? (job.status === "queued" ? "queued" : "download") : "render";
+  const rawStage = job ? job.stage ?? (job.status === "queued" ? "queued" : "download") : "render";
+  // "preview" (browser preview copy) and "done" happen after clips are picked.
+  const stage = rawStage === "preview" || rawStage === "done" ? "render" : rawStage;
   const steps = job && !job.params?.youtube_url ? STEPS.filter((s) => s.key !== "download") : STEPS;
   const currentIdx = Math.max(0, steps.findIndex((s) => s.key === stage));
   const renderDone = renderJobs.filter((j) => j.status === "done").length;

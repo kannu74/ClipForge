@@ -27,6 +27,28 @@ from app.translit import has_devanagari, to_roman
 
 FONTS_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
 
+
+def fonts_dir_for_render(render_dir: Path) -> str:
+    """Path to the caption fonts, relative to the render working directory.
+
+    ffmpeg filter arguments can't safely hold arbitrary absolute paths
+    (Windows drive colons, apostrophes in user names like D'Souza...), so the
+    fonts are mirrored into the data folder -- always on the same drive as
+    the renders -- and referenced with a plain relative path like ../../../fonts."""
+    import os
+    import shutil
+
+    from app.config import settings
+
+    target = (settings.data_dir / "fonts").resolve()
+    target.mkdir(parents=True, exist_ok=True)
+    for f in FONTS_DIR.glob("*.ttf"):
+        dst = target / f.name
+        if not dst.exists() or dst.stat().st_size != f.stat().st_size:
+            shutil.copy2(f, dst)
+    rel = os.path.relpath(target, render_dir.resolve())
+    return rel.replace("\\", "/")
+
 # Words worth colouring on their own (reaction / hype vocabulary, English +
 # Hinglish). Matched case-insensitively on the bare word.
 # Deliberately short: if every other word is coloured, nothing stands out.
@@ -132,7 +154,7 @@ def prepare_words(words: list, clip_start: float, clip_end: float, cfg: CaptionS
             continue
         if cfg.script == "roman":
             text = to_roman(text)
-        bare = re.sub(r"[^\w']", "", text.lower())
+        bare = re.sub(r"[^\w']", "", to_roman(text).lower())
         out.append(
             CapWord(
                 text=text,
