@@ -37,8 +37,16 @@ async def lifespan(app: FastAPI):
     except Exception:  # pragma: no cover
         logger.exception("Orphan cleanup failed")
     register_gpu_dlls()
+    try:
+        pipeline.retry_renders_after_update()
+    except Exception:  # pragma: no cover
+        logger.exception("Couldn't re-queue failed renders")
     jobs.start_workers()
-    logger.info("ClipForge backend starting. Data dir: %s", settings.data_dir.resolve())
+    from app import buildinfo
+
+    logger.info(
+        "ClipForge backend starting (build %s). Data dir: %s", buildinfo.RUNNING, settings.data_dir.resolve()
+    )
     logger.info(
         "Quality mode: %s | Whisper model: %s | Ollama model: %s (%s)",
         settings.quality_mode.value,

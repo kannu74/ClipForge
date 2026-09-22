@@ -99,6 +99,7 @@ export function uploadWithProgress(
 export const api = {
   hardware: () => request<HardwareReport>("/api/system/hardware"),
   capabilities: () => request<Capabilities>("/api/system/capabilities"),
+  health: () => request<{ status: string; build?: string; update_pending?: boolean }>("/api/system/health"),
 
   listProjects: () => request<Project[]>("/api/projects"),
   getProject: (id: string) => request<Project>(`/api/projects/${id}`),

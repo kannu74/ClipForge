@@ -6,8 +6,15 @@ import type { Capabilities } from "./lib/types";
 
 export default function App() {
   const [caps, setCaps] = useState<Capabilities | null>(null);
+  const [updatePending, setUpdatePending] = useState(false);
   useEffect(() => {
     api.capabilities().then(setCaps).catch(() => {});
+    // ClipForge updated on disk while this server kept running? Then fixes
+    // don't apply until a restart -- say so instead of failing mysteriously.
+    const check = () => api.health().then((h) => setUpdatePending(!!h.update_pending)).catch(() => {});
+    check();
+    const t = window.setInterval(check, 30000);
+    return () => window.clearInterval(t);
   }, []);
 
   const problems: string[] = [];
@@ -35,6 +42,12 @@ export default function App() {
           <HardwareBadge />
         </div>
       </header>
+      {updatePending && (
+        <div className="border-b border-accent/60 bg-accent/15 px-6 py-2.5 text-center text-sm font-medium text-slate-100">
+          ClipForge has been updated. Close the black ClipForge window and start ClipForge.bat again to use the new version —
+          until then the old version keeps running.
+        </div>
+      )}
       {problems.length > 0 && (
         <div className="border-b border-amber-900 bg-amber-950/40 px-6 py-2 text-center text-xs text-amber-200">{problems.join(" ")}</div>
       )}

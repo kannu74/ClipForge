@@ -369,8 +369,13 @@ def do_render(project_id: str, clip_id: str, progress: ProgressFn = _noop) -> di
     except Exception as exc:
         from app.errors import ClipForgeError
 
+        from app import buildinfo
+
         msg = exc.message if isinstance(exc, ClipForgeError) else "Rendering failed."
-        clip_store.update_clip(project_id, clip_id, {"render": {"status": "failed", "error": msg}})
+        failed = {"status": "failed", "error": msg, "build": buildinfo.RUNNING}
+        if isinstance(exc, ClipForgeError) and exc.suggestion:
+            failed["suggestion"] = exc.suggestion
+        clip_store.update_clip(project_id, clip_id, {"render": failed})
         raise
     info["hash"] = rhash
     clip_store.update_clip(project_id, clip_id, {"render": info})
@@ -461,6 +466,10 @@ def recover_interrupted(stale_jobs: list[dict]) -> None:
         try:
             if j["kind"] == "render" and j["params"].get("clip_id"):
                 _reset_clip_render(pid, j["params"]["clip_id"])
+                # Renders are cheap to redo and the user asked for them: pick
+                # them back up instead of leaving the clip un-rendered.
+                if storage.find_source_file(pid) is not None:
+                    enqueue_render(pid, j["params"]["clip_id"])
             elif j["kind"] in ("process", "rerank"):
                 has_source = storage.find_source_file(pid) is not None
                 db.update_project(
@@ -470,6 +479,33 @@ def recover_interrupted(stale_jobs: list[dict]) -> None:
                 )
         except Exception:  # pragma: no cover - best effort
             logger.exception("Couldn't reset state for interrupted job %s", j.get("id"))
+
+
+def retry_renders_after_update() -> int:
+    """Re-queue renders that failed under a different (older) version of the
+    code. When a render bug is fixed, the creator's failed clips are rendered
+    again automatically on the next start -- once per version, so a clip that
+    fails for another reason doesn't loop."""
+    from app import buildinfo
+
+    queued = 0
+    for row in db.list_projects():
+        pid = row["id"]
+        try:
+            payload = clip_store.load(pid)
+            if not payload or storage.find_source_file(pid) is None:
+                continue
+            active = {j["params"].get("clip_id") for j in jobs.active_jobs(pid, "render")}
+            for c in payload.get("clips", []):
+                r = c.get("render") or {}
+                if r.get("status") == "failed" and r.get("build") != buildinfo.RUNNING and c["id"] not in active:
+                    enqueue_render(pid, c["id"])
+                    queued += 1
+        except Exception:  # pragma: no cover - best effort
+            logger.exception("Couldn't re-queue failed renders for project %s", pid)
+    if queued:
+        logger.info("Re-queued %d render(s) that failed on an older version", queued)
+    return queued
 
 
 def cleanup_orphans() -> None:

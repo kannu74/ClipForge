@@ -53,6 +53,14 @@ Akshar ran ClipForge on Windows with his Resident Evil 7 video (10 min, 1080p60,
   - project-wide on the clips toolbar, which re-renders.
   Each clip card shows a CC badge.
 
+- **The render fix didn't reach Akshar: the old server kept running.** The logs showed the old relative-path error again after the fix was on disk. Only one "backend starting" line appeared, and the GPU libraries installed at 02:03 IST. So re-launching `ClipForge.bat` had found the still-open old server and just re-opened the browser on it. Now:
+  - the server reports a content fingerprint of its code in `/api/system/health`;
+  - `run.py` stops an outdated ClipForge (found by PID, or by its listening port for versions that predate this) and starts the new one;
+  - the UI shows a banner if the code on disk changed under a running server;
+  - renders that failed on an older version, or were interrupted by a restart, are queued again automatically on start, once per version;
+  - render failures now keep their plain-language suggestion.
+  Tests: `tests/test_updates.py`. The launcher test kills a real old-style server by port. *Not yet verified on Windows itself.*
+
 **Still open:** Hinglish transcription quality with the GPU and large-v3-turbo is not yet seen, and it is the next thing to check.
 
 ## Phase status

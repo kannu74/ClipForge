@@ -45,8 +45,15 @@ def test_interrupted_render_is_reset_after_restart(client, sample_video, monkeyp
     pid = _upload(client, sample_video)
     clip = clip_store.add_manual_clip(pid, 0.5, 3.0, "x", "", "gaming")
     clip_store.update_clip(pid, clip["id"], {"render": {"status": "rendering"}})
-    pipeline.recover_interrupted([{"id": "j", "kind": "render", "project_id": pid, "params": {"clip_id": clip["id"]}}])
-    assert clip_store.get_clip(pid, clip["id"])["render"]["status"] == "none"
+    jobs.stop_workers()
+    try:
+        pipeline.recover_interrupted([{"id": "j", "kind": "render", "project_id": pid, "params": {"clip_id": clip["id"]}}])
+        # The stale "rendering" badge is gone and the render is picked back up.
+        assert clip_store.get_clip(pid, clip["id"])["render"]["status"] == "queued"
+    finally:
+        jobs.start_workers()
+    assert jobs.wait_idle(60)
+    assert clip_store.get_clip(pid, clip["id"])["render"]["status"] == "done"
 
 
 def test_cancelling_a_queued_render_clears_its_badge(client, sample_video):

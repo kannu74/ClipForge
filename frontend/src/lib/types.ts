@@ -239,6 +239,7 @@ export interface ClipRender {
   qc?: QcReport;
   rendered_at?: string;
   error?: string;
+  suggestion?: string;
   stale?: boolean;
   hash?: string;
 }

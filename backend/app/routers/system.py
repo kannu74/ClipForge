@@ -12,7 +12,18 @@ router = APIRouter(prefix="/api/system", tags=["system"])
 
 @router.get("/health")
 def health() -> dict:
-    return {"status": "ok"}
+    import os
+
+    from app import buildinfo
+
+    return {
+        "status": "ok",
+        "build": buildinfo.RUNNING,
+        "pid": os.getpid(),
+        # True when ClipForge was updated on disk while this server kept
+        # running: the UI asks the user to restart so fixes actually apply.
+        "update_pending": buildinfo.update_pending(),
+    }
 
 
 @router.get("/hardware", response_model=HardwareReportOut)

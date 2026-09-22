@@ -79,6 +79,7 @@ export default function ClipCard({
                 <>
                   <div className="text-sm text-red-300">Render failed</div>
                   <div className="text-xs text-slate-300">{r.error}</div>
+                  {r.suggestion && <div className="px-2 text-center text-[11px] text-slate-400">{r.suggestion}</div>}
                   <Button size="sm" variant="primary" onClick={onRender}>
                     Try again
                   </Button>
