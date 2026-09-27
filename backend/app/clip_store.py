@@ -108,7 +108,13 @@ def update_clip(project_id: str, clip_id: str, patch: dict) -> dict:
     return mutate(project_id, fn)
 
 
-def validate_range(start: float, end: float, media_duration: float | None) -> tuple[float, float]:
+def validate_range(
+    start: float,
+    end: float,
+    media_duration: float | None,
+    *,
+    max_seconds: float = MAX_CLIP_SECONDS,
+) -> tuple[float, float]:
     if start < 0:
         start = 0.0
     if media_duration:
@@ -117,9 +123,9 @@ def validate_range(start: float, end: float, media_duration: float | None) -> tu
         raise ValidationFailedError(
             "That clip is too short.", suggestion=f"Clips need to be at least {MIN_CLIP_SECONDS:.0f} second long."
         )
-    if end - start > MAX_CLIP_SECONDS:
+    if end - start > max_seconds:
         raise ValidationFailedError(
-            "That clip is too long.", suggestion=f"Keep clips under {MAX_CLIP_SECONDS / 60:.0f} minutes."
+            "That clip is too long.", suggestion=f"Keep clips under {max_seconds / 60:.0f} minutes."
         )
     return round(start, 2), round(end, 2)
 
@@ -197,6 +203,7 @@ def render_hash(ps: ProjectSettings, clip: dict, transcript_rev: int = 0) -> str
             "ref": ref.model_dump(),
             "words": clip.get("caption_words"),
             "render": ps.render.model_dump(),
+            "workflow_mode": ps.workflow_mode,
             "rev": transcript_rev if not clip.get("caption_words") else 0,
             "title": clip.get("title", "") if cap.title_overlay else "",
             "v": 1,

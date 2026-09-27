@@ -38,6 +38,7 @@ export type CaptionPosition = "top" | "upper" | "middle" | "lower" | "bottom";
 export type CaptionScript = "as_spoken" | "roman" | "devanagari";
 export type ReframeMode = "auto" | "fill" | "fit_blur" | "track" | "split" | "original";
 export type AspectRatio = "9:16" | "1:1" | "4:5" | "16:9";
+export type WorkflowMode = "clip_finder" | "captions_only";
 
 export interface CaptionSettings {
   enabled: boolean;
@@ -78,9 +79,11 @@ export interface ReframeSettings {
 export interface RenderSettings {
   resolution: 720 | 1080;
   quality: "fast" | "balanced" | "high";
+  output_mode: "source" | "selected_aspect";
 }
 
 export interface ProjectSettings {
+  workflow_mode: WorkflowMode;
   clip_count: number;
   duration_preset: DurationPreset;
   custom_min_seconds: number | null;
@@ -100,6 +103,7 @@ export interface ProjectSettings {
 export type DeepPartial<T> = { [K in keyof T]?: T[K] extends object | null ? DeepPartial<NonNullable<T[K]>> | T[K] : T[K] };
 
 export const DEFAULT_SETTINGS: ProjectSettings = {
+  workflow_mode: "clip_finder",
   clip_count: 8,
   duration_preset: "standard",
   custom_min_seconds: null,
@@ -131,7 +135,7 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
     title_seconds: 3,
   },
   reframe: { aspect: "9:16", mode: "auto", facecam: null, split_ratio: 0.4, facecam_on_top: true, focus_x: 0.5 },
-  render: { resolution: 1080, quality: "balanced" },
+  render: { resolution: 1080, quality: "balanced", output_mode: "selected_aspect" },
 };
 
 export interface MediaMetadata {
@@ -266,7 +270,7 @@ export interface Clip {
   duration_explanation: string;
   llm_enriched: boolean;
   title: string;
-  origin: "auto" | "manual";
+  origin: "auto" | "manual" | "captions_only";
   edited: boolean;
   virality: number;
   confidence: "high" | "low";

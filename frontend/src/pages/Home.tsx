@@ -9,6 +9,7 @@ import {
   type Preset,
   type ProjectSettings,
   type Project,
+  type WorkflowMode,
 } from "../lib/types";
 import { CaptionControls, ClipOptions, FramingControls } from "../components/SettingsControls";
 import { Button, CaptionsOnOff, Card, ErrorBox, ProgressBar, Segmented, TimeInput, Toggle } from "../components/ui";
@@ -54,6 +55,7 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [contentType, setContentType] = useState<ContentType>(prefs.contentType);
   const [settings, setSettings] = useState<ProjectSettings>(prefs.settings);
+  const [workflowMode, setWorkflowMode] = useState<WorkflowMode>("clip_finder");
   const [tab, setTab] = useState<"clips" | "captions" | "framing">("clips");
   const [useRange, setUseRange] = useState(false);
   const [rangeStart, setRangeStart] = useState("");
@@ -133,7 +135,7 @@ export default function Home() {
         return;
       }
     }
-    const finalSettings = { ...settings, range_start, range_end };
+    const finalSettings = { ...settings, workflow_mode: workflowMode, range_start, range_end };
     savePrefs(settings, contentType);
     setBusy(true);
     try {
@@ -180,12 +182,43 @@ export default function Home() {
     <div className="space-y-10">
       <section className="mx-auto max-w-3xl pt-6 text-center">
         <h1 className="text-4xl font-bold tracking-tight text-white md:text-5xl">
-          Long video in. <span className="bg-gradient-to-r from-accent to-fuchsia-400 bg-clip-text text-transparent">Viral clips out.</span>
+          {workflowMode === "captions_only" ? (
+            <>Video in. <span className="bg-gradient-to-r from-accent to-fuchsia-400 bg-clip-text text-transparent">Captions out.</span></>
+          ) : (
+            <>Long video in. <span className="bg-gradient-to-r from-accent to-fuchsia-400 bg-clip-text text-transparent">Viral clips out.</span></>
+          )}
         </h1>
         <p className="mt-3 text-slate-400">
-          Finds the best moments, cuts them cleanly, adds Hinglish-friendly captions and reframes for Shorts / Reels — all on your own computer.
+          {workflowMode === "captions_only"
+            ? "Add word-synced, Hinglish-friendly captions to your video without finding clips or changing the framing."
+            : "Finds the best moments, cuts them cleanly, adds Hinglish-friendly captions and reframes for Shorts / Reels — all on your own computer."}
         </p>
       </section>
+
+      <div className="mx-auto grid max-w-3xl gap-3 md:grid-cols-2">
+        <button
+          type="button"
+          onClick={() => {
+            setWorkflowMode("clip_finder");
+            setTab("clips");
+          }}
+          className={cx("rounded-xl border p-4 text-left transition-colors", workflowMode === "clip_finder" ? "border-accent bg-accent/10" : "border-surface-border bg-surface-raised")}
+        >
+          <div className="font-semibold text-white">Find viral clips</div>
+          <div className="mt-1 text-sm text-slate-400">Detect moments, reframe them, and caption the best clips.</div>
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setWorkflowMode("captions_only");
+            setTab("captions");
+          }}
+          className={cx("rounded-xl border p-4 text-left transition-colors", workflowMode === "captions_only" ? "border-accent bg-accent/10" : "border-surface-border bg-surface-raised")}
+        >
+          <div className="font-semibold text-white">Add captions</div>
+          <div className="mt-1 text-sm text-slate-400">Caption the whole video or a selected range, keeping its framing.</div>
+        </button>
+      </div>
 
       <Card className="mx-auto max-w-3xl p-5">
         <div
@@ -263,7 +296,7 @@ export default function Home() {
           </div>
         )}
 
-        {presets.length > 0 && (
+        {workflowMode === "clip_finder" && presets.length > 0 && (
           <div className="mt-6 space-y-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Start from a preset</div>
             <div className="flex flex-wrap gap-2">
@@ -293,7 +326,7 @@ export default function Home() {
           </div>
         )}
 
-        <div className="mt-6 space-y-3">
+        {workflowMode === "clip_finder" && <div className="mt-6 space-y-3">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">What kind of video is it?</div>
           <div className="flex flex-wrap gap-2">
             {(Object.keys(CONTENT_TYPE_LABELS) as ContentType[]).map((ct) => (
@@ -313,7 +346,7 @@ export default function Home() {
               </button>
             ))}
           </div>
-        </div>
+        </div>}
 
         <div className="mt-6 space-y-2">
           <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Captions</div>
@@ -329,15 +362,17 @@ export default function Home() {
               size="sm"
               value={tab}
               onChange={setTab}
-              options={[
-                { value: "clips", label: "Clips" },
-                { value: "captions", label: "Captions" },
-                { value: "framing", label: "Framing" },
-              ]}
+              options={workflowMode === "captions_only"
+                ? [{ value: "captions", label: "Captions" }]
+                : [
+                    { value: "clips", label: "Clips" },
+                    { value: "captions", label: "Captions" },
+                    { value: "framing", label: "Framing" },
+                  ]}
             />
             <span className="text-xs text-slate-500">Remembered for next time. Every clip can be edited afterwards.</span>
           </div>
-          {tab === "clips" && (
+          {tab === "clips" && workflowMode === "clip_finder" && (
             <div className="space-y-5">
               <ClipOptions value={settings} onChange={patch} />
               <div className="space-y-2">
@@ -355,8 +390,36 @@ export default function Home() {
           {tab === "captions" && (
             <CaptionControls value={settings.captions} onChange={(p) => patch({ captions: { ...settings.captions, ...p } })} />
           )}
-          {tab === "framing" && (
+          {tab === "framing" && workflowMode === "clip_finder" && (
             <FramingControls value={settings.reframe} onChange={(p) => patch({ reframe: { ...settings.reframe, ...p } })} />
+          )}
+          {workflowMode === "captions_only" && (
+            <div className="mt-5 space-y-3 border-t border-surface-border pt-4">
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Output format</div>
+              <Segmented
+                size="sm"
+                value={settings.render.output_mode}
+                onChange={(v) => patch({ render: { ...settings.render, output_mode: v } })}
+                options={[
+                  { value: "source", label: "Preserve original" },
+                  { value: "selected_aspect", label: "Use selected aspect" },
+                ]}
+              />
+              {settings.render.output_mode === "selected_aspect" && (
+                <Segmented
+                  size="sm"
+                  value={settings.reframe.aspect}
+                  onChange={(v) => patch({ reframe: { ...settings.reframe, aspect: v, mode: "original" } })}
+                  options={[
+                    { value: "9:16", label: "9:16" },
+                    { value: "1:1", label: "1:1" },
+                    { value: "4:5", label: "4:5" },
+                    { value: "16:9", label: "16:9" },
+                  ]}
+                />
+              )}
+              <p className="text-xs text-slate-500">Preserve original keeps the source dimensions. Selected aspect uses the existing framing canvas without face detection.</p>
+            </div>
           )}
         </div>
       </Card>

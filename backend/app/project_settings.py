@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from app import db
 
+WorkflowMode = Literal["clip_finder", "captions_only"]
 CaptionStyleName = Literal[
     "bold_pop", "karaoke", "clean", "boxed", "horror", "neon",
     "hormozi", "highlighter", "typewriter", "meme", "cinema", "none",
@@ -81,9 +82,11 @@ class ReframeSettings(BaseModel):
 class RenderSettings(BaseModel):
     resolution: Literal[720, 1080] = 1080
     quality: Literal["fast", "balanced", "high"] = "balanced"
+    output_mode: Literal["source", "selected_aspect"] = "selected_aspect"
 
 
 class ProjectSettings(BaseModel):
+    workflow_mode: WorkflowMode = "clip_finder"
     clip_count: int = Field(default=8, ge=1, le=30)
     duration_preset: str = "standard"
     custom_min_seconds: float | None = None

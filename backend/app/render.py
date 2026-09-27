@@ -129,6 +129,7 @@ def render_clip(
     source: Path,
     meta: dict,
     on_progress: ProgressFn | None = None,
+    workflow_mode: str = "clip_finder",
 ) -> dict:
     """Render one clip. Returns the render info dict stored on the clip."""
     rdir = storage.renders_dir(project_id)
@@ -139,12 +140,15 @@ def render_clip(
     if not src_w or not src_h:
         m = media.probe(source)
         src_w, src_h = m.width, m.height
-    out_w, out_h = reframe.output_size(ref_cfg.aspect, render_cfg.resolution)
+    source_preserving = workflow_mode == "captions_only" and render_cfg.output_mode == "source"
+    out_w, out_h = (src_w, src_h) if source_preserving else reframe.output_size(ref_cfg.aspect, render_cfg.resolution)
     report = on_progress or (lambda f, m: None)
 
     # 1. Reframe analysis (cached per clip window).
     analysis = None
-    needs_analysis = ref_cfg.mode in ("auto", "track") or (ref_cfg.mode == "split" and ref_cfg.facecam is None)
+    needs_analysis = workflow_mode != "captions_only" and (
+        ref_cfg.mode in ("auto", "track") or (ref_cfg.mode == "split" and ref_cfg.facecam is None)
+    )
     if needs_analysis:
         report(0.02, "Finding faces for smart framing...")
         try:
@@ -156,7 +160,15 @@ def render_clip(
         except Exception as exc:  # never let analysis kill a render
             logger.warning("Face analysis failed for clip %s: %s", clip_id, exc)
             analysis = None
-    rplan = reframe.plan(ref_cfg, src_w, src_h, out_w, out_h, analysis, rdir, clip_id)
+    if source_preserving:
+        rplan = reframe.ReframePlan(
+            mode="original",
+            filter_complex="[0:v]null[vout]",
+            caption_y=None,
+            note="Original source format.",
+        )
+    else:
+        rplan = reframe.plan(ref_cfg, src_w, src_h, out_w, out_h, analysis, rdir, clip_id)
 
     # 2. Captions (.ass burned in, .srt alongside).
     report(0.08, "Building captions...")

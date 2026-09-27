@@ -12,12 +12,14 @@ export default function SourceTab({
   busy,
   onReprocess,
   onClipAdded,
+  captionOnly = false,
 }: {
   project: Project;
   settings: ProjectSettings;
   busy: boolean;
   onReprocess: (range: { range_start: number | null; range_end: number | null }) => void;
   onClipAdded: () => void;
+  captionOnly?: boolean;
 }) {
   const duration = project.metadata?.duration_seconds ?? 0;
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -91,7 +93,7 @@ export default function SourceTab({
       <div className="space-y-5">
         <Card className="space-y-3 p-4">
           <Field
-            label="Part of the video to find clips in"
+            label={captionOnly ? "Part of the video to caption" : "Part of the video to find clips in"}
             hint="Great for long streams: skip the intro/outro or focus on one section. Changing it re-transcribes that part."
           >
             <TrimTimeline
@@ -137,13 +139,13 @@ export default function SourceTab({
               })
             }
           >
-            Find clips in {rangeIsWhole ? "the whole video" : `${fmtTime(rs)}–${fmtTime(re)}`}
+            {captionOnly ? "Caption" : "Find clips in"} {rangeIsWhole ? "the whole video" : `${fmtTime(rs)}–${fmtTime(re)}`}
           </Button>
         </Card>
 
-        <Card className="space-y-3 p-4">
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Cut a clip yourself</div>
-          <p className="text-xs text-slate-400">Play the video, mark where a clip starts and ends, save it as Clip 1, then do Clip 2, 3… Create them all at once — they render with your current caption and framing settings.</p>
+        {!captionOnly && <Card className="space-y-3 p-4">
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">{captionOnly ? "Caption range" : "Cut a clip yourself"}</div>
+          <p className="text-xs text-slate-400">{captionOnly ? "Choose the portion to caption. The output keeps the source framing." : "Play the video, mark where a clip starts and ends, save it as Clip 1, then do Clip 2, 3… Create them all at once — they render with your current caption and framing settings."}</p>
           <div className="flex flex-wrap items-center gap-2">
             <Button size="sm" onClick={() => setInPt(current)}>
               Mark start {inPt !== null && `(${fmtTime(inPt)})`}
@@ -158,14 +160,14 @@ export default function SourceTab({
             placeholder="Title (optional)"
             className="w-full rounded-lg border border-surface-border bg-surface px-3 py-1.5 text-sm text-slate-100 outline-none focus:border-accent"
           />
-          <Button
+          {!captionOnly && <Button
             size="sm"
             disabled={inPt === null || outPt === null || Math.abs(outPt - inPt) < 1}
             onClick={queueClip}
           >
             {inPt !== null && outPt !== null ? `Save as Clip ${queue.length + 1} (${Math.abs(outPt - inPt).toFixed(1)}s)` : "Save as next clip"}
-          </Button>
-          {queue.length > 0 && (
+          </Button>}
+          {!captionOnly && queue.length > 0 && (
             <ul className="space-y-1 text-xs text-slate-300">
               {queue.map((q, i) => (
                 <li key={i} className="flex items-center justify-between gap-2 rounded-lg bg-surface px-2 py-1">
@@ -179,7 +181,7 @@ export default function SourceTab({
               ))}
             </ul>
           )}
-          <Button
+          {!captionOnly && <Button
             variant="primary"
             size="sm"
             disabled={adding || (queue.length === 0 && (inPt === null || outPt === null || Math.abs(outPt - inPt) < 1))}
@@ -190,9 +192,9 @@ export default function SourceTab({
               : `Create & render ${queue.length + (inPt !== null && outPt !== null && Math.abs(outPt - inPt) >= 1 ? 1 : 0) || ""} clip${
                   queue.length + (inPt !== null && outPt !== null ? 1 : 0) === 1 ? "" : "s"
                 } with the current preset`}
-          </Button>
+          </Button>}
           {error && <ErrorBox message={error} onDismiss={() => setError(null)} />}
-        </Card>
+        </Card>}
       </div>
     </div>
   );

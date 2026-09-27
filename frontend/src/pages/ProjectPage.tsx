@@ -36,6 +36,7 @@ export default function ProjectPage() {
   const lastDoneCount = useRef(-1);
 
   const settings: ProjectSettings = project?.settings ?? DEFAULT_SETTINGS;
+  const captionOnly = settings.workflow_mode === "captions_only";
 
   const refresh = useCallback(async () => {
     try {
@@ -177,8 +178,8 @@ export default function ProjectPage() {
           value={tab}
           onChange={setTab}
           options={[
-            { value: "clips", label: `Clips${clipList.length ? ` (${clipList.length})` : ""}` },
-            { value: "source", label: "Source & range" },
+            { value: "clips", label: captionOnly ? "Captions" : `Clips${clipList.length ? ` (${clipList.length})` : ""}` },
+            { value: "source", label: captionOnly ? "Video & range" : "Source & range" },
             { value: "transcript", label: "Transcript" },
             { value: "settings", label: "Settings" },
           ]}
@@ -225,7 +226,7 @@ export default function ProjectPage() {
           {clips?.message && <div className="rounded-xl border border-amber-800 bg-amber-950/30 px-4 py-3 text-sm text-amber-200">{clips.message}</div>}
           {clipList.length > 0 && (
             <div className="flex flex-wrap items-center gap-3 rounded-xl border border-surface-border bg-surface-raised px-4 py-3">
-              <span className="text-sm font-medium text-slate-300">Captions on all clips:</span>
+                <span className="text-sm font-medium text-slate-300">Captions:</span>
               <div className="w-72">
                 <CaptionsOnOff
                   compact
@@ -244,7 +245,7 @@ export default function ProjectPage() {
                   }
                 />
               </div>
-              <span className="text-xs text-slate-500">Changing this re-renders your clips.</span>
+                <span className="text-xs text-slate-500">Changing this re-renders the video.</span>
             </div>
           )}
           {clipList.length > 0 && (
@@ -263,16 +264,15 @@ export default function ProjectPage() {
                   Render {staleCount > 0 && renderedCount === clipList.length ? "changed" : "remaining"}
                 </Button>
               )}
-              <Button disabled={busy} onClick={() => setTab("settings")} title="Change length / count and pick again">
+              {!captionOnly && <Button disabled={busy} onClick={() => setTab("settings")} title="Change length / count and pick again">
                 ↻ Pick clips again
-              </Button>
-              <Button onClick={() => setTab("source")}>+ Cut a clip</Button>
+              </Button>}
+              {!captionOnly && <Button onClick={() => setTab("source")}>+ Cut a clip</Button>}
             </div>
           )}
           {clipList.length === 0 && !busy && project.has_transcript && (
-            <Card className="p-8 text-center text-sm text-slate-400">
-              No clips yet. <button className="text-accent underline" onClick={() => act(() => api.rerank(projectId))}>Find clips</button> or cut
-              one yourself in “Source & range”.
+              <Card className="p-8 text-center text-sm text-slate-400">
+              No caption target yet. <button className="text-accent underline" onClick={() => act(() => api.process(projectId, {}))}>Process the video</button> to transcribe and caption it.
             </Card>
           )}
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
@@ -312,6 +312,7 @@ export default function ProjectPage() {
               setTab("clips");
             })
           }
+          captionOnly={captionOnly}
         />
       )}
 
@@ -320,6 +321,7 @@ export default function ProjectPage() {
       {tab === "settings" && (
         <SettingsTab
           settings={settings}
+          captionOnly={captionOnly}
           busy={busy}
           hasTranscript={project.has_transcript}
           onSave={saveSettings}
@@ -345,6 +347,7 @@ export default function ProjectPage() {
           clip={clipList.find((c) => c.id === editing.id) ?? editing}
           onClose={() => setEditing(null)}
           onSaved={refresh}
+          captionOnly={captionOnly}
         />
       )}
     </div>
@@ -414,6 +417,7 @@ function SettingsTab({
   settings,
   busy,
   hasTranscript,
+  captionOnly,
   onSave,
   onRerank,
   onRenderAll,
@@ -421,12 +425,13 @@ function SettingsTab({
   settings: ProjectSettings;
   busy: boolean;
   hasTranscript: boolean;
+  captionOnly: boolean;
   onSave: (patch: Partial<ProjectSettings>) => Promise<void>;
   onRerank: () => void;
   onRenderAll: () => void;
 }) {
   const [draft, setDraft] = useState<ProjectSettings>(settings);
-  const [section, setSection] = useState<"clips" | "captions" | "framing">("clips");
+  const [section, setSection] = useState<"clips" | "captions" | "framing">(captionOnly ? "captions" : "clips");
   // Polling hands us a fresh settings object every 1.5s; only reset the draft
   // when the saved settings actually change, never over unsaved edits.
   const settingsKey = JSON.stringify(settings);
@@ -447,20 +452,20 @@ function SettingsTab({
           value={section}
           onChange={setSection}
           options={[
-            { value: "clips", label: "Clips" },
+            ...(!captionOnly ? [{ value: "clips" as const, label: "Clips" }] : []),
             { value: "captions", label: "Captions" },
-            { value: "framing", label: "Framing & quality" },
+            ...(!captionOnly ? [{ value: "framing" as const, label: "Framing & quality" }] : []),
           ]}
         />
         <span className="text-xs text-slate-500">
           Project defaults. A clip you've customised in its editor keeps its own settings.
         </span>
       </div>
-      {section === "clips" && <ClipOptions value={draft} onChange={(p) => setDraft((d) => ({ ...d, ...p }))} />}
+      {section === "clips" && !captionOnly && <ClipOptions value={draft} onChange={(p) => setDraft((d) => ({ ...d, ...p }))} />}
       {section === "captions" && (
         <CaptionControls value={draft.captions} onChange={(p) => setDraft((d) => ({ ...d, captions: { ...d.captions, ...p } }))} />
       )}
-      {section === "framing" && (
+      {section === "framing" && !captionOnly && (
         <div className="space-y-5">
           <FramingControls value={draft.reframe} onChange={(p) => setDraft((d) => ({ ...d, reframe: { ...d.reframe, ...p } }))} />
           <div className="grid gap-5 md:grid-cols-2">
@@ -496,7 +501,7 @@ function SettingsTab({
         <Button variant="primary" disabled={!dirty} onClick={() => onSave(draft)}>
           Save settings
         </Button>
-        <Button
+        {!captionOnly && <Button
           disabled={busy || !hasTranscript}
           onClick={async () => {
             if (dirty) await onSave(draft);
@@ -505,8 +510,8 @@ function SettingsTab({
           title="Re-pick clips with these settings (keeps your manual clips; no re-transcription)"
         >
           {clipsChanged ? "Save & pick clips again" : "Pick clips again"}
-        </Button>
-        <Button
+        </Button>}
+        {!captionOnly && <Button
           disabled={busy}
           onClick={async () => {
             if (dirty) await onSave(draft);
@@ -515,7 +520,7 @@ function SettingsTab({
           title="Re-render every clip whose look changed"
         >
           Save & re-render changed clips
-        </Button>
+        </Button>}
       </div>
     </Card>
   );

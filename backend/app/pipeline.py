@@ -28,7 +28,7 @@ from app.logging_config import get_logger
 from app.moments import detect_moments, moment_from_dict, moment_to_dict
 from app.ranking import select_clips
 from app.titles import llm_title
-from app.units import units_from_transcript
+from app.units import units_from_transcript, words_in_range
 
 logger = get_logger("pipeline")
 ProgressFn = Callable[[float, str], None]
@@ -357,11 +357,14 @@ def do_render(project_id: str, clip_id: str, progress: ProgressFn = _noop) -> di
     transcript = storage.read_json(storage.transcript_path(project_id)) or {"segments": []}
     units = units_from_transcript(transcript)
     cap_cfg, ref_cfg = clip_store.effective_settings(ps, clip)
+    if ps.workflow_mode == "captions_only":
+        ref_cfg = ref_cfg.model_copy(update={"mode": "original"})
     rhash = clip_store.render_hash(ps, clip, int(transcript.get("revision") or 0))
     clip_store.update_clip(project_id, clip_id, {"render": {**clip.get("render", {}), "status": "rendering"}})
     try:
         info = render.render_clip(
-            project_id, clip, units, cap_cfg, ref_cfg, ps.render, source, project_meta(project_id), progress
+            project_id, clip, units, cap_cfg, ref_cfg, ps.render, source, project_meta(project_id), progress,
+            workflow_mode=ps.workflow_mode,
         )
     except jobs.JobCancelled:
         _reset_clip_render(project_id, clip_id)
@@ -567,12 +570,46 @@ def job_process(ctx: jobs.JobContext) -> dict:
         if project_meta(pid).get("has_audio") is False:
             db.update_project(pid, status="ready", error_message=None)
             raise ValidationFailedError(
-                "This video has no audio track, so ClipForge can't find moments from what's said.",
-                suggestion="You can still make clips by hand: open “Source & range” and use “Cut a clip yourself”.",
+                "This video has no audio track, so ClipForge can't generate captions.",
+                suggestion="Upload a video with an audio track, or use the existing app's “Cut a clip yourself” workflow for silent clips.",
             )
 
         ctx.update(0.15, "Preparing transcription...", stage="transcribe")
         do_transcribe(pid, ctx.sub(0.15, 0.70, "transcribe"), force=bool(params.get("force_transcribe")))
+
+        if ps.workflow_mode == "captions_only":
+            meta = project_meta(pid)
+            duration = float(meta.get("duration_seconds") or 0)
+            start = float(ps.range_start or 0)
+            end = float(ps.range_end if ps.range_end is not None else duration)
+            if end <= start or duration <= 0:
+                raise ValidationFailedError("Couldn't determine the video duration.", suggestion="Try uploading the video again.")
+            transcript = storage.read_json(storage.transcript_path(pid)) or {"segments": []}
+            excerpt = " ".join(w.word for w in words_in_range(units_from_transcript(transcript), start, end))
+            existing = clip_store.load(pid)
+            target = next((c for c in (existing or {}).get("clips", []) if c.get("origin") == "captions_only"), None)
+            if target is None:
+                project_row = db.get_project(pid)
+                content_type = project_row["content_type"] if project_row is not None else "general_creator"
+                target = clip_store.add_manual_clip(pid, start, end, "Captioned video", excerpt, content_type)
+                clip_store.update_clip(pid, target["id"], {"origin": "captions_only", "reason": "Caption-only video."})
+            elif target["start"] != start or target["end"] != end:
+                clip_store.update_clip(
+                    pid,
+                    target["id"],
+                    {"start": start, "end": end, "transcript_excerpt": excerpt, "edited": True},
+                )
+            if ps.auto_render and (target.get("render") or {}).get("status") != "done":
+                enqueue_render(pid, target["id"])
+            try:
+                ensure_preview(pid, ctx.sub(0.70, 1.0, "preview"))
+            except jobs.JobCancelled:
+                raise
+            except Exception as exc:
+                logger.warning("Preview proxy failed for %s: %s", pid, exc)
+            db.update_project(pid, status="ready")
+            ctx.update(1.0, "Transcript ready. Rendering captions..." if ps.auto_render else "Transcript ready.", stage="done")
+            return {"clips": 1, "renders_queued": int(ps.auto_render), "message": "Caption-only video ready."}
 
         if ps.clip_mode == "manual":
             # The creator marks the clips themselves: transcribe (so captions

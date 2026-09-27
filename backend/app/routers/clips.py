@@ -8,7 +8,7 @@ import zipfile
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
-from app import clip_store, pipeline, social, storage
+from app import clip_store, pipeline, project_settings, social, storage
 from app.errors import NotFoundError, ValidationFailedError
 from app.http_utils import ranged_file_response
 from app.logging_config import get_logger
@@ -30,6 +30,11 @@ from app.units import units_from_transcript, words_in_range
 
 router = APIRouter(prefix="/api/projects", tags=["clips"])
 logger = get_logger("routers.clips")
+
+
+def _max_range_seconds(project_id: str, media_duration: float | None) -> float:
+    settings = project_settings.load(project_id)
+    return float(media_duration or 0) if settings.workflow_mode == "captions_only" else clip_store.MAX_CLIP_SECONDS
 
 
 def _clips_out(project_id: str, payload: dict) -> ClipsOut:
@@ -71,7 +76,12 @@ def create_clip(project_id: str, payload: ClipCreateRequest) -> ClipOut:
     row = require_project(project_id)
     pipeline.require_source(project_id)
     meta = pipeline.project_meta(project_id)
-    start, end = clip_store.validate_range(payload.start, payload.end, meta.get("duration_seconds"))
+    start, end = clip_store.validate_range(
+        payload.start,
+        payload.end,
+        meta.get("duration_seconds"),
+        max_seconds=_max_range_seconds(project_id, meta.get("duration_seconds")),
+    )
     clip = clip_store.add_manual_clip(
         project_id, start, end, payload.title.strip(), _excerpt(project_id, start, end), row["content_type"]
     )
@@ -89,7 +99,15 @@ def create_clips_batch(project_id: str, payload: ClipBatchRequest) -> list[ClipO
     pipeline.require_source(project_id)
     meta = pipeline.project_meta(project_id)
     ranges = [
-        (*clip_store.validate_range(c.start, c.end, meta.get("duration_seconds")), c.title.strip() or f"Clip {i}")
+        (
+            *clip_store.validate_range(
+                c.start,
+                c.end,
+                meta.get("duration_seconds"),
+                max_seconds=_max_range_seconds(project_id, meta.get("duration_seconds")),
+            ),
+            c.title.strip() or f"Clip {i}",
+        )
         for i, c in enumerate(payload.clips, 1)
     ]
     made: list[dict] = []
@@ -164,7 +182,12 @@ def extend_clip(project_id: str, clip_id: str, payload: ClipExtendRequest) -> Cl
     start, end = _snap_to_speech(project_id, start, end, payload.before > 0, payload.after > 0)
     if media_duration:
         end = min(end, float(media_duration))
-    start, end = clip_store.validate_range(start, end, media_duration)
+    start, end = clip_store.validate_range(
+        start,
+        end,
+        media_duration,
+        max_seconds=_max_range_seconds(project_id, media_duration),
+    )
     if (start, end) == (clip["start"], clip["end"]):
         raise ValidationFailedError(
             "There's no more footage to add in that direction.",
@@ -190,7 +213,12 @@ def patch_clip(project_id: str, clip_id: str, payload: ClipPatchRequest) -> Clip
         meta = pipeline.project_meta(project_id)
         start = payload.start if payload.start is not None else clip["start"]
         end = payload.end if payload.end is not None else clip["end"]
-        start, end = clip_store.validate_range(start, end, meta.get("duration_seconds"))
+        start, end = clip_store.validate_range(
+            start,
+            end,
+            meta.get("duration_seconds"),
+            max_seconds=_max_range_seconds(project_id, meta.get("duration_seconds")),
+        )
         patch.update(_range_patch(project_id, clip, start, end))
     if payload.title is not None:
         patch["title"] = payload.title.strip()

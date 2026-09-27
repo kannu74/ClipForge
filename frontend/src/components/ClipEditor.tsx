@@ -19,12 +19,14 @@ export default function ClipEditor({
   clip,
   onClose,
   onSaved,
+  captionOnly = false,
 }: {
   project: Project;
   settings: ProjectSettings;
   clip: Clip;
   onClose: () => void;
   onSaved: () => void;
+  captionOnly?: boolean;
 }) {
   const duration = project.metadata?.duration_seconds ?? clip.end + 30;
   const [start, setStart] = useState(clip.start);
@@ -235,7 +237,7 @@ export default function ClipEditor({
               { value: "trim", label: "Title" },
               { value: "captions", label: "Caption style" },
               { value: "text", label: "Caption text" },
-              { value: "framing", label: "Framing" },
+              ...(!captionOnly ? [{ value: "framing" as const, label: "Framing" }] : []),
               { value: "post", label: "Post" },
             ]}
           />
@@ -344,7 +346,7 @@ export default function ClipEditor({
               </div>
             )}
             {tab === "post" && <PostPanel projectId={project.id} clip={clip} />}
-            {tab === "framing" && (
+            {tab === "framing" && !captionOnly && (
               <div className="space-y-3">
                 <FramingControls value={ref} onChange={(p) => setRef((r) => ({ ...r, ...p }))} onPickFacecam={() => setPickFacecam(true)} narrow />
                 {clip.render.reframe_note && (

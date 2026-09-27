@@ -2,7 +2,16 @@
 
 Read this before starting any work. Update it after every meaningful milestone. See `CLAUDE.md` for the working agreement and `docs/PRODUCT_BRIEF.md` for the full original spec.
 
-Last updated: 2026-09-23
+Last updated: 2026-09-27
+
+## Caption-only workflow — IMPLEMENTED, needs real-video inspection
+
+- Home now offers the existing clip-finder workflow or **Add captions**.
+- Caption-only projects accept uploads and YouTube URLs, transcribe locally, skip moment detection/ranking and face analysis, and create one target covering the whole source or selected range.
+- Existing caption styles, Hinglish script handling, word corrections, trim/title editing, SRT/MP4 downloads, social suggestions, rendering, and QC are reused.
+- Caption-only output can preserve source dimensions or use a selected aspect with letterboxing; it never performs smart framing.
+- Focused caption-only and existing end-to-end tests pass. The full suite currently has two environment-sensitive failures because Ollama is reachable and a local Whisper model is available in this Windows environment, contradicting tests that assume those services are unavailable.
+- Not yet verified on real YouTube input, long creator videos, or manually inspected output on the target Windows machine.
 
 ## Where things stand (short version)
 
