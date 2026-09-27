@@ -13,6 +13,7 @@ class ContentType(str, Enum):
     REACTION = "reaction"
     COMEDY = "comedy"
     COMMENTARY = "commentary"
+    REVIEW = "review"
     STORYTELLING = "storytelling"
     GENERAL_CREATOR = "general_creator"
 
@@ -212,10 +213,27 @@ class ClipPatchRequest(BaseModel):
     render: bool = False  # enqueue a re-render after applying the edit
 
 
+class ClipExtendRequest(BaseModel):
+    before: float = Field(default=0, ge=0, le=300)  # seconds of extra footage before the clip
+    after: float = Field(default=0, ge=0, le=300)  # ... and after it
+    render: bool = True
+
+
 class ClipCreateRequest(BaseModel):
     start: float = Field(ge=0)
     end: float = Field(gt=0)
     title: str = ""
+    render: bool = True
+
+
+class ClipRange(BaseModel):
+    start: float = Field(ge=0)
+    end: float = Field(gt=0)
+    title: str = ""
+
+
+class ClipBatchRequest(BaseModel):
+    clips: list[ClipRange] = Field(min_length=1, max_length=50)
     render: bool = True
 
 

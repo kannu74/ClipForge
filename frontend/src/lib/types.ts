@@ -5,6 +5,7 @@ export type ContentType =
   | "reaction"
   | "comedy"
   | "commentary"
+  | "review"
   | "storytelling"
   | "general_creator";
 
@@ -15,6 +16,7 @@ export const CONTENT_TYPE_LABELS: Record<ContentType, string> = {
   reaction: "Reaction",
   comedy: "Comedy",
   commentary: "Commentary",
+  review: "Review / info video",
   storytelling: "Storytelling",
   general_creator: "General",
 };
@@ -29,7 +31,9 @@ export const DURATION_PRESET_LABELS: Record<DurationPreset, string> = {
   custom: "Custom",
 };
 
-export type CaptionStyleName = "bold_pop" | "karaoke" | "clean" | "boxed" | "horror" | "neon" | "none";
+export type CaptionStyleName =
+  | "bold_pop" | "karaoke" | "clean" | "boxed" | "horror" | "neon"
+  | "hormozi" | "highlighter" | "typewriter" | "meme" | "cinema" | "none";
 export type CaptionPosition = "top" | "upper" | "middle" | "lower" | "bottom";
 export type CaptionScript = "as_spoken" | "roman" | "devanagari";
 export type ReframeMode = "auto" | "fill" | "fit_blur" | "track" | "split" | "original";
@@ -49,6 +53,8 @@ export interface CaptionSettings {
   font: string;
   script: CaptionScript;
   emphasize_keywords: boolean;
+  unify_spelling: boolean;
+  mask_profanity: boolean;
   title_overlay: boolean;
   title_seconds: number;
 }
@@ -83,6 +89,7 @@ export interface ProjectSettings {
   range_end: number | null;
   whisper_model: string | null;
   language: string;
+  clip_mode: "auto" | "manual";
   auto_render: boolean;
   include_backup_clips: boolean;
   captions: CaptionSettings;
@@ -101,6 +108,7 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
   range_end: null,
   whisper_model: null,
   language: "",
+  clip_mode: "auto",
   auto_render: true,
   include_backup_clips: true,
   captions: {
@@ -117,6 +125,8 @@ export const DEFAULT_SETTINGS: ProjectSettings = {
     font: "",
     script: "as_spoken",
     emphasize_keywords: true,
+    unify_spelling: false,
+    mask_profanity: false,
     title_overlay: false,
     title_seconds: 3,
   },
@@ -307,6 +317,11 @@ export const CAPTION_STYLE_INFO: Record<Exclude<CaptionStyleName, "none">, { lab
   boxed: { label: "Boxed", font: "Mukta Bold", desc: "Text on a dark box" },
   horror: { label: "Horror", font: "Anton", desc: "Tall poster font, red" },
   neon: { label: "Neon", font: "Bebas Neue", desc: "Glowing outline" },
+  hormozi: { label: "Hormozi", font: "Mukta ExtraBold", desc: "Huge, green active word" },
+  highlighter: { label: "Highlighter", font: "Mukta ExtraBold", desc: "Spoken word on a colour box" },
+  typewriter: { label: "Typewriter", font: "Mukta Bold", desc: "Words appear as spoken" },
+  meme: { label: "Meme", font: "Anton", desc: "Impact-style, heavy outline" },
+  cinema: { label: "Cinema", font: "Mukta SemiBold", desc: "Quiet film subtitles" },
 };
 
 export const REFRAME_LABELS: Record<ReframeMode, { label: string; desc: string }> = {
@@ -324,4 +339,11 @@ export interface Preset {
   content_type: ContentType;
   settings: DeepPartial<ProjectSettings>;
   builtin: boolean;
+}
+
+export interface SocialSuggestions {
+  source: string;
+  note?: string;
+  captions: { style: string; text: string }[];
+  hashtags: { tag: string; kind: "niche" | "topic" | "language" | "broad" | "ai" }[];
 }

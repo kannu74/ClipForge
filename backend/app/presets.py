@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS presets (
 
 # Only the fields a preset should carry -- never a source range or model.
 _PRESET_KEYS = ("clip_count", "duration_preset", "custom_min_seconds", "custom_max_seconds",
-                "include_backup_clips", "auto_render", "captions", "reframe", "render", "language")
+                "include_backup_clips", "auto_render", "clip_mode", "captions", "reframe", "render", "language")
 
 BUILT_IN: list[dict] = [
     {
@@ -66,6 +66,18 @@ BUILT_IN: list[dict] = [
             "duration_preset": "standard",
             "captions": {"style": "clean", "uppercase": False, "words_per_line": 5, "max_lines": 2},
             "reframe": {"aspect": "9:16", "mode": "track"},
+        },
+    },
+    {
+        "id": "builtin-review",
+        "name": "Review / Info Video",
+        "content_type": "review",
+        "settings": {
+            "duration_preset": "extended",
+            "captions": {"style": "clean", "uppercase": False, "words_per_line": 4, "max_lines": 2,
+                         "position": "lower", "title_overlay": True, "title_seconds": 4},
+            # Reviews show footage the viewer needs to see whole: full frame over a blurred backdrop.
+            "reframe": {"aspect": "9:16", "mode": "fit_blur"},
         },
     },
     {

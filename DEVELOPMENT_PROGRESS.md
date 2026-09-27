@@ -264,3 +264,22 @@ Edits mark the render as stale, and **Save & render** queues a re-render. Extend
 3. Face tracking uses one face (the largest). There is no multi-speaker switching yet.
 4. No emoji/sticker overlays, B-roll or auto-zoom effects (OpusClip has these; they're lower priority than clip and caption quality per `CLAUDE.md`).
 5. DaVinci Resolve export (XML/EDL) — Phase 13.
+
+## Caption styles, Hinglish options, extend-on-the-spot, post captions
+
+**Implemented, tests pass (CPU only). Not yet checked by watching a real render on Akshar's PC.**
+- Five new caption styles: Hormozi, Highlighter (coloured box on the spoken word), Typewriter (words appear as spoken), Meme, Cinema.
+- Hinglish options: "Unify spelling" (nahin/nhi → nahi, kyaa → kya; ambiguous short words are never rewritten) and "Star out swear words". Both apply to burned-in captions and the SRT.
+- Extend: ◀5s / ◀15s / 5s▶ / 15s▶ buttons on every clip card call `POST /clips/{id}/extend`, which snaps a moved edge out of any word it lands in, fills the caption words for the new stretch and re-renders.
+- Post tab in the clip editor: caption ideas and ranked hashtags built from the clip's own transcript, category and content type (`social.py`). "Improve with local AI" uses Ollama and falls back to the rule-based set.
+- **Not built: one-click Instagram posting.** It needs a Meta developer app, an Instagram Business/Creator account, and a public URL for the video, which conflicts with the local-first rule. The UI says so.
+- To verify on the real machine: the new styles' look in libass (especially Highlighter's box and Typewriter's hidden words).
+
+## Facecam de-duplication, manual clip batches, review preset
+
+**Implemented; tests pass (CPU only, synthetic frames). Not yet checked on a real gameplay + facecam recording on Akshar's PC.**
+- Split layout no longer shows the streamer twice. The gameplay panel is cropped from the part of the frame that doesn't contain the facecam (above a bottom-centre/bottom-right cam, below a top cam, beside a corner cam); if no clean crop exists the cam is blurred there. The detected position (e.g. "bottom-center") appears in the framing note. Trade-off: with a bottom-centre cam the gameplay panel shows a narrower slice of the game.
+- "How clips are chosen": Auto-pick, or "I'll mark the clips" (`clip_mode: manual` transcribes only). Source & range now queues Clip 1, Clip 2… and creates them in one go (`POST /clips/batch`), rendered with the project's caption/framing preset.
+- New "Review / Info Video" preset and `review` content type (verdict / insight moment categories, full-frame blurred backdrop, two-line clean captions, hook title).
+- Caption wording edits that keep timing already existed (clip editor → captions words); unchanged.
+- Known: the two failing tests (`test_detect_moments_finds_the_exciting_window`, `test_real_engine_fails_gracefully_without_model_access`) assume no Ollama / no Hugging Face access; they fail on this PC where both are available, independent of these changes.

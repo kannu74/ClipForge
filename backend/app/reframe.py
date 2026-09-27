@@ -287,7 +287,7 @@ def plan(
         if abs(src_aspect - out_aspect) < 0.03:
             mode, note = "fill", "Source already matches the output shape."
         elif analysis and analysis.kind == "facecam" and out_aspect < 1:
-            mode, note = "split", "Detected a facecam -- facecam on top, gameplay below."
+            mode, note = "split", f"Detected a facecam ({facecam_position(FacecamRect(**analysis.facecam))}) -- facecam on top, gameplay below with the facecam cropped out."
         elif analysis and analysis.kind == "talking":
             mode, note = "track", "Detected a speaker -- the crop follows their face."
         else:
@@ -299,7 +299,8 @@ def plan(
         if rect is None:
             mode, note = "fit_blur", "Split layout needs a facecam area -- none was detected or set, so the full frame is shown instead. Mark the facecam in the editor to use split."
         else:
-            return _split(cfg, rect, src_w, src_h, out_w, out_h, note or "Facecam on top, gameplay below.")
+            where = facecam_position(rect)
+            return _split(cfg, rect, src_w, src_h, out_w, out_h, note or f"Facecam ({where}) on top, gameplay below with the facecam cropped out.")
     if mode == "track":
         path = analysis.track if analysis else []
         if not path:
@@ -334,11 +335,60 @@ def plan(
     return ReframePlan("fit_blur", fc, cap_y, note or "Full frame over a blurred background.")
 
 
+def facecam_position(rect: FacecamRect) -> str:
+    """Human label for where the facecam sits, e.g. 'bottom-center'."""
+    cx, cy = rect.x + rect.w / 2, rect.y + rect.h / 2
+    v = "top" if cy < 0.34 else "bottom" if cy > 0.66 else "middle"
+    h = "left" if cx < 0.34 else "right" if cx > 0.66 else "center"
+    return "center" if (v, h) == ("middle", "center") else f"{v}-{h}" if v != "middle" else h
+
+
+def _game_crop(cfg: ReframeSettings, cam: tuple[float, float, float, float], src_w: int, src_h: int, g_aspect: float):
+    """Pick the gameplay crop (w, h, x, y) that excludes the facecam when it
+    can, else return the cam rect to blur. Returns (gw, gh, gx, gy, hidden)."""
+    cx, cy, cw, ch = cam
+    pad = 0.02 * src_h
+    # Region of the frame free of the cam, tried in order of least loss.
+    regions = []
+    if cy + ch / 2 > src_h * 0.5:      # cam low: use the area above it
+        regions.append((0.0, 0.0, float(src_w), max(cy - pad, 0)))
+    else:                              # cam high: use the area below it
+        regions.append((0.0, min(cy + ch + pad, src_h), float(src_w), max(src_h - cy - ch - pad, 0)))
+    if cx + cw / 2 > src_w * 0.5:      # cam right: area to its left
+        regions.append((0.0, 0.0, max(cx - pad, 0), float(src_h)))
+    else:
+        regions.append((min(cx + cw + pad, src_w), 0.0, max(src_w - cx - cw - pad, 0), float(src_h)))
+    full_h = src_h
+    full_w = min(src_w, full_h * g_aspect)
+    for rx, ry, rw, rh in regions:
+        if rw < src_w * 0.3 or rh < src_h * 0.3:
+            continue
+        # Keep as much of the region as the panel shape allows.
+        gh = min(rh, rw / g_aspect)
+        gw = gh * g_aspect
+        if gw > rw:
+            gw, gh = rw, rw / g_aspect
+        if gh < full_h * 0.55:         # too much of the game would be lost
+            continue
+        gx = rx + (rw - gw) * cfg.focus_x
+        gy = ry + (rh - gh) / 2
+        return gw, gh, gx, gy, None
+    # No clean crop: default crop, with the cam blurred if it overlaps.
+    gh, gw = float(src_h), full_w
+    if gw / g_aspect < gh:
+        gh = gw / g_aspect
+    gx, gy = (src_w - gw) * cfg.focus_x, (src_h - gh) / 2
+    overlaps = cx < gx + gw and cx + cw > gx and cy < gy + gh and cy + ch > gy
+    hidden = (max(cx, 0), max(cy, 0), min(cw, src_w - cx), min(ch, src_h - cy)) if overlaps else None
+    return gw, gh, gx, gy, hidden
+
+
 def _split(cfg: ReframeSettings, rect: FacecamRect, src_w: int, src_h: int, out_w: int, out_h: int, note: str) -> ReframePlan:
     top_h = _even(out_h * cfg.split_ratio)
     bot_h = out_h - top_h
     # Facecam panel: expand the marked rect to the panel's aspect ratio.
     rx, ry, rw, rh = rect.x * src_w, rect.y * src_h, rect.w * src_w, rect.h * src_h
+    rx0, ry0, rw0, rh0 = rx, ry, rw, rh  # the cam as marked, before padding to the panel shape
     panel_aspect = out_w / top_h
     cx, cy = rx + rw / 2, ry + rh / 2
     if rw / rh < panel_aspect:
@@ -349,16 +399,15 @@ def _split(cfg: ReframeSettings, rect: FacecamRect, src_w: int, src_h: int, out_
     rx = min(max(cx - rw / 2, 0), src_w - rw)
     ry = min(max(cy - rh / 2, 0), src_h - rh)
     cam = f"crop={_floor_even(rw)}:{_floor_even(rh)}:{int(rx)}:{int(ry)},scale={out_w}:{top_h}:flags=lanczos"
-    # Gameplay panel: crop to its aspect around the focus point.
+    # Gameplay panel: crop to its aspect around the focus point, steering the
+    # crop away from the facecam so the streamer isn't shown twice.
     g_aspect = out_w / bot_h
-    gh = src_h
-    gw = min(src_w, gh * g_aspect)
-    if gw >= src_w:
-        gw = src_w
-        gh = min(src_h, gw / g_aspect)
-    gx = (src_w - gw) * cfg.focus_x
-    gy = (src_h - gh) / 2
+    gw, gh, gx, gy, hidden = _game_crop(cfg, (rx0, ry0, rw0, rh0), src_w, src_h, g_aspect)
     game = f"crop={_floor_even(gw)}:{_floor_even(gh)}:{int(gx)}:{int(gy)},scale={out_w}:{bot_h}:flags=lanczos"
+    if hidden:
+        # The cam couldn't be cropped out: blur it in the gameplay panel.
+        mx, my, mw, mh = (int(v) for v in hidden)
+        game = f"split=2[ga][gb];[gb]crop={mw}:{mh}:{mx}:{my},boxblur=25:5[gm];[ga][gm]overlay={mx}:{my},{game}"
     top, bottom = ("cam", "game") if cfg.facecam_on_top else ("game", "cam")
     fc = (
         f"[0:v]split=2[camsrc][gamesrc];[camsrc]{cam}[cam];[gamesrc]{game}[game];"

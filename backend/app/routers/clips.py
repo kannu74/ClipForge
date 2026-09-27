@@ -8,13 +8,15 @@ import zipfile
 from fastapi import APIRouter, Request
 from fastapi.responses import Response
 
-from app import clip_store, pipeline, storage
+from app import clip_store, pipeline, social, storage
 from app.errors import NotFoundError, ValidationFailedError
 from app.http_utils import ranged_file_response
 from app.logging_config import get_logger
 from app.models import (
     CaptionWordsRequest,
+    ClipBatchRequest,
     ClipCreateRequest,
+    ClipExtendRequest,
     ClipOut,
     ClipPatchRequest,
     ClipsOut,
@@ -79,6 +81,106 @@ def create_clip(project_id: str, payload: ClipCreateRequest) -> ClipOut:
     return ClipOut(**clip)
 
 
+@router.post("/{project_id}/clips/batch", response_model=list[ClipOut], status_code=201)
+def create_clips_batch(project_id: str, payload: ClipBatchRequest) -> list[ClipOut]:
+    """Add several hand-marked clips at once (Clip 1, Clip 2, ...). Every
+    range is validated before any is added, so a bad one adds nothing."""
+    row = require_project(project_id)
+    pipeline.require_source(project_id)
+    meta = pipeline.project_meta(project_id)
+    ranges = [
+        (*clip_store.validate_range(c.start, c.end, meta.get("duration_seconds")), c.title.strip() or f"Clip {i}")
+        for i, c in enumerate(payload.clips, 1)
+    ]
+    made: list[dict] = []
+    # add_manual_clip puts each new clip first, so add in reverse to keep Clip 1 on top.
+    for start, end, title in reversed(ranges):
+        made.append(clip_store.add_manual_clip(
+            project_id, start, end, title, _excerpt(project_id, start, end), row["content_type"]))
+    made.reverse()
+    out = []
+    for clip in made:
+        if payload.render:
+            pipeline.enqueue_render(project_id, clip["id"])
+            clip = clip_store.get_clip(project_id, clip["id"])
+        out.append(ClipOut(**clip))
+    return out
+
+
+def _range_patch(project_id: str, clip: dict, start: float, end: float) -> dict:
+    """Fields to update when a clip's range changes to (start, end)."""
+    if (start, end) == (clip["start"], clip["end"]):
+        return {}
+    patch: dict = {
+        "start": start,
+        "end": end,
+        "edited": True,
+        "transcript_excerpt": _excerpt(project_id, start, end) or clip["transcript_excerpt"],
+        "duration_explanation": f"Trimmed by you to {end - start:.0f} seconds.",
+    }
+    if clip.get("caption_words"):
+        # Keep the creator's edited words inside the new range, and fill any
+        # newly-included stretch with transcript words so an extended clip
+        # isn't left without captions.
+        old_s, old_e = clip["start"], clip["end"]
+        kept = [w for w in clip["caption_words"] if w["end"] > start and w["start"] < end]
+        t = storage.read_json(storage.transcript_path(project_id)) or {"segments": []}
+        fill = [
+            {"word": w.word, "start": w.start, "end": w.end}
+            for w in words_in_range(units_from_transcript(t), start, end)
+            if (w.start + w.end) / 2 < old_s or (w.start + w.end) / 2 > old_e
+        ]
+        patch["caption_words"] = sorted(kept + fill, key=lambda w: w["start"]) or None
+    return patch
+
+
+def _snap_to_speech(project_id: str, start: float, end: float, moved_start: bool, moved_end: bool) -> tuple[float, float]:
+    """After extending, never cut through a word: a moved edge that lands
+    inside a word is pulled to the edge of that word."""
+    t = storage.read_json(storage.transcript_path(project_id)) or {"segments": []}
+    for u in units_from_transcript(t):
+        if u.end < start - 1 or u.start > end + 1:
+            continue
+        for w in u.words:
+            if moved_start and w.start < start < w.end:
+                start = max(0.0, w.start - 0.05)
+            if moved_end and w.start < end < w.end:
+                end = w.end + 0.1
+    return start, end
+
+
+@router.post("/{project_id}/clips/{clip_id}/extend", response_model=ClipOut)
+def extend_clip(project_id: str, clip_id: str, payload: ClipExtendRequest) -> ClipOut:
+    """Grow a clip on the spot: pull in more footage before and/or after it."""
+    require_project(project_id)
+    pipeline.require_source(project_id)
+    clip = clip_store.get_clip(project_id, clip_id)
+    meta = pipeline.project_meta(project_id)
+    media_duration = meta.get("duration_seconds")
+    start = max(0.0, clip["start"] - payload.before)
+    end = clip["end"] + payload.after
+    if media_duration:
+        end = min(end, float(media_duration))
+    start, end = _snap_to_speech(project_id, start, end, payload.before > 0, payload.after > 0)
+    if media_duration:
+        end = min(end, float(media_duration))
+    start, end = clip_store.validate_range(start, end, media_duration)
+    if (start, end) == (clip["start"], clip["end"]):
+        raise ValidationFailedError(
+            "There's no more footage to add in that direction.",
+            suggestion="The clip already reaches the start or end of the video.",
+        )
+    patch = _range_patch(project_id, clip, start, end)
+    patch["duration_explanation"] = (
+        f"Extended by you to {end - start:.0f} seconds "
+        f"({clip['start'] - start:+.0f}s before, {end - clip['end']:+.0f}s after)."
+    )
+    clip_store.update_clip(project_id, clip_id, patch)
+    if payload.render:
+        pipeline.enqueue_render(project_id, clip_id)
+    return ClipOut(**clip_store.get_clip(project_id, clip_id))
+
+
 @router.patch("/{project_id}/clips/{clip_id}", response_model=ClipOut)
 def patch_clip(project_id: str, clip_id: str, payload: ClipPatchRequest) -> ClipOut:
     require_project(project_id)
@@ -89,23 +191,7 @@ def patch_clip(project_id: str, clip_id: str, payload: ClipPatchRequest) -> Clip
         start = payload.start if payload.start is not None else clip["start"]
         end = payload.end if payload.end is not None else clip["end"]
         start, end = clip_store.validate_range(start, end, meta.get("duration_seconds"))
-        if (start, end) != (clip["start"], clip["end"]):
-            patch.update({"start": start, "end": end, "edited": True})
-            patch["transcript_excerpt"] = _excerpt(project_id, start, end) or clip["transcript_excerpt"]
-            patch["duration_explanation"] = f"Trimmed by you to {end - start:.0f} seconds."
-            if clip.get("caption_words"):
-                # Keep the creator's edited words inside the new range, and
-                # fill any newly-included stretch with transcript words so an
-                # extended clip isn't left without captions.
-                old_s, old_e = clip["start"], clip["end"]
-                kept = [w for w in clip["caption_words"] if w["end"] > start and w["start"] < end]
-                t = storage.read_json(storage.transcript_path(project_id)) or {"segments": []}
-                fill = [
-                    {"word": w.word, "start": w.start, "end": w.end}
-                    for w in words_in_range(units_from_transcript(t), start, end)
-                    if (w.start + w.end) / 2 < old_s or (w.start + w.end) / 2 > old_e
-                ]
-                patch["caption_words"] = sorted(kept + fill, key=lambda w: w["start"]) or None
+        patch.update(_range_patch(project_id, clip, start, end))
     if payload.title is not None:
         patch["title"] = payload.title.strip()
     if payload.clear_caption_overrides:
@@ -177,6 +263,16 @@ def put_caption_words(project_id: str, clip_id: str, payload: CaptionWordsReques
     if payload.render:
         pipeline.enqueue_render(project_id, clip_id)
     return get_caption_words(project_id, clip_id)
+
+
+@router.get("/{project_id}/clips/{clip_id}/social")
+def clip_social(project_id: str, clip_id: str, ai: bool = False) -> dict:
+    """Caption + hashtag suggestions for posting this clip. `ai=true` asks the
+    local Ollama model (slower); the default is instant and rule-based."""
+    row = require_project(project_id)
+    clip = clip_store.get_clip(project_id, clip_id)
+    fn = social.suggest_with_llm if ai else social.suggest
+    return fn(clip.get("transcript_excerpt", ""), clip.get("title", ""), clip.get("category", ""), row["content_type"])
 
 
 @router.post("/{project_id}/clips/{clip_id}/render", response_model=JobOut)

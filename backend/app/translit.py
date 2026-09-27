@@ -165,3 +165,67 @@ def to_roman(text: str) -> str:
     if not has_devanagari(text):
         return text
     return TOKEN_RE.sub(lambda m: _word(m.group(1)), text)
+
+
+# --- Roman Hinglish spelling clean-up -------------------------------------
+# Whisper spells Roman Hinglish inconsistently ("nahin", "nhi", "kyaa"). This
+# maps the common variants onto one casual spelling so captions look uniform.
+# Still the same words -- only the spelling is unified, never translated.
+SPELLING_VARIANTS = {
+    "nahin": "nahi", "nhi": "nahi", "nahi": "nahi",
+    "kyaa": "kya", "kyon": "kyun", "kyu": "kyun", "kyoon": "kyun",
+    "yeh": "ye", "ya": "ye", "woh": "wo", "vo": "wo",
+    "acha": "accha", "achha": "accha", "achcha": "accha", "acchha": "accha",
+    "thik": "theek", "theek": "theek", "bhaii": "bhai", "bhaiya": "bhaiya",
+    "yar": "yaar", "yaaar": "yaar", "haan": "haan", "han": "haan", "ha": "haan",
+    "mai": "main", "mein": "mein", "me": "mein",
+    "bohot": "bahut", "bahot": "bahut", "bhut": "bahut", "boht": "bahut",
+    "jyada": "zyada", "jyaada": "zyada", "zyaada": "zyada",
+    "matlb": "matlab", "mtlb": "matlab", "bilkl": "bilkul",
+    "abhi": "abhi", "abi": "abhi", "kabhi": "kabhi", "kbhi": "kabhi",
+    "phir": "phir", "fir": "phir", "phr": "phir",
+    "lekin": "lekin", "lakin": "lekin", "par": "par", "pe": "pe",
+    "chalo": "chalo", "chlo": "chalo", "dekho": "dekho", "dkho": "dekho",
+    "sahi": "sahi", "shi": "sahi", "mazza": "mazaa", "maza": "mazaa", "majaa": "mazaa",
+    "paagal": "pagal", "pagal": "pagal", "bhoot": "bhoot",
+}
+# "ha"/"ya"/"me"/"bhut" collide with English or other words, so they are only
+# rewritten when explicitly listed as safe below.
+_UNSAFE = {"ha", "ya", "me", "pe", "han", "fir", "mai"}
+_SAFE_VARIANTS = {k: v for k, v in SPELLING_VARIANTS.items() if k not in _UNSAFE and k != v}
+_WORD_RE = re.compile(r"^([^\w']*)([\w']+)([^\w']*)$", re.UNICODE)
+
+
+def normalize_spelling(word: str) -> str:
+    """Unify a Roman Hinglish word's spelling, keeping punctuation and case."""
+    m = _WORD_RE.match(word)
+    if not m:
+        return word
+    pre, core, post = m.groups()
+    target = _SAFE_VARIANTS.get(core.lower())
+    if not target:
+        return word
+    if core.isupper() and len(core) > 1:
+        target = target.upper()
+    elif core[0].isupper():
+        target = target[0].upper() + target[1:]
+    return pre + target + post
+
+
+# Words to mask in captions for platform-friendliness (Reels reach, ads).
+# Only the vowel/inner letters are starred so the word is still readable.
+PROFANITY = {
+    "fuck", "fucking", "fucked", "shit", "bitch", "asshole", "bastard", "dick", "pussy",
+    "chutiya", "chutiye", "madarchod", "bhenchod", "behenchod", "bhosdike", "bhosdi",
+    "gaand", "gand", "lund", "randi", "harami", "haramkhor", "kutta", "kamina", "kamine",
+}
+
+
+def mask_profanity(word: str) -> str:
+    m = _WORD_RE.match(word)
+    if not m:
+        return word
+    pre, core, post = m.groups()
+    if core.lower() not in PROFANITY or len(core) < 3:
+        return word
+    return pre + core[0] + "*" * (len(core) - 2) + core[-1] + post

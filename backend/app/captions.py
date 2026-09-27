@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from app.project_settings import CaptionSettings
-from app.translit import has_devanagari, to_roman
+from app.translit import has_devanagari, mask_profanity, normalize_spelling, to_roman
 
 FONTS_DIR = Path(__file__).resolve().parent / "assets" / "fonts"
 
@@ -74,7 +74,7 @@ class StylePreset:
     box: bool = False         # opaque box behind text (BorderStyle 3)
     box_color: str = "#000000"
     box_alpha: int = 0x40     # 00 = opaque, FF = transparent
-    highlight: str = "color"  # color | karaoke | none
+    highlight: str = "color"  # color | karaoke | box | reveal | none
     pop: bool = False
     glow: bool = False
     shake: bool = False
@@ -97,9 +97,21 @@ STYLES: dict[str, StylePreset] = {
     "horror": StylePreset("Anton", "Mukta ExtraBold", 0.068, False, 0.08, 3.5, 1.0, pop=True, shake=True),
     # Thin coloured halo around white words.
     "neon": StylePreset("Bebas Neue", "Mukta ExtraBold", 0.080, False, 0.05, 0.0, 2.5, glow=True, spacing=1.0),
+    # Big, punchy, green active word with a hard shadow (the "Hormozi" look).
+    "hormozi": StylePreset("Mukta ExtraBold", "Mukta ExtraBold", 0.072, False, 0.12, 4.0, 0.0, pop=True),
+    # White text; the word being spoken sits on a coloured highlighter box.
+    "highlighter": StylePreset("Mukta ExtraBold", "Mukta ExtraBold", 0.058, False, 0.10, 2.0, 0.4, highlight="box"),
+    # Words appear one by one as they're spoken; not-yet-spoken words are hidden.
+    "typewriter": StylePreset("Mukta Bold", "Mukta Bold", 0.054, False, 0.10, 2.0, 0.4, highlight="reveal",
+                              default_uppercase=False),
+    # Classic meme/Impact look: huge condensed white text, heavy black outline, no highlight.
+    "meme": StylePreset("Anton", "Mukta ExtraBold", 0.078, False, 0.14, 2.0, 0.0, highlight="none"),
+    # Quiet cinematic subtitles: light weight, soft shadow, hardly any outline.
+    "cinema": StylePreset("Mukta SemiBold", "Mukta SemiBold", 0.040, False, 0.02, 2.5, 0.8,
+                          highlight="none", default_uppercase=False, spacing=0.5),
 }
 
-STYLE_HIGHLIGHT_DEFAULTS = {"horror": "#FF2A2A"}
+STYLE_HIGHLIGHT_DEFAULTS = {"horror": "#FF2A2A", "hormozi": "#3CFF7A", "highlighter": "#FFE14D"}
 NEON_GLOW = "#29F0FF"
 
 # Vertical anchor (fraction of output height) for each position.
@@ -154,7 +166,11 @@ def prepare_words(words: list, clip_start: float, clip_end: float, cfg: CaptionS
             continue
         if cfg.script == "roman":
             text = to_roman(text)
+        if cfg.unify_spelling and not has_devanagari(text):
+            text = normalize_spelling(text)
         bare = re.sub(r"[^\w']", "", to_roman(text).lower())
+        if cfg.mask_profanity:
+            text = mask_profanity(text)
         out.append(
             CapWord(
                 text=text,
@@ -301,6 +317,15 @@ def build_ass(
         f"Style: CapDeva,{preset.deva_font},{font_size},{_ass_color(cfg.text_color)},{_ass_color(highlight)},"
         f"{outline_col},{back_col},{-1 if preset.bold else 0},0,0,0,100,100,0,0,"
         f"{border_style},{outline},{preset.shadow},5,20,20,20,1",
+    ]
+    if preset.highlight == "box":
+        # Style for the active word: dark text on a highlighter-coloured box.
+        for name, fnt in (("CapBox", base_font), ("CapBoxDeva", preset.deva_font)):
+            header.append(
+                f"Style: {name},{fnt},{font_size},{_ass_color('#111111')},{_ass_color('#111111')},"
+                f"{_ass_color(highlight)},{back_col},0,0,0,0,100,100,0,0,3,{max(2.0, round(font_size * 0.16, 1))},0,5,20,20,20,1"
+            )
+    header += [
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
@@ -339,7 +364,12 @@ def build_ass(
                 for wi in row:
                     w = line.words[wi]
                     txt = _escape(_display(w.text, cfg, preset))
-                    if active is not None and wi == active:
+                    if active is not None and wi == active and preset.highlight == "box":
+                        box_style = style.replace("Cap", "CapBox", 1)
+                        row_parts.append(f"{{\\r{box_style}{scale_tag}}}{txt}{{\\r{style}{blur_tag}{scale_tag}}}")
+                    elif active is not None and preset.highlight == "reveal" and wi > active:
+                        row_parts.append(f"{{\\alpha&HFF&}}{txt}{{\\alpha&H00&}}")
+                    elif active is not None and wi == active:
                         tags = f"\\c{hl}"
                         if preset.pop:
                             big = int(base_scale * 1.12)

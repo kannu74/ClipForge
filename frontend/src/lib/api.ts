@@ -3,6 +3,7 @@ import type {
   Capabilities,
   CaptionWord,
   Clip,
+  SocialSuggestions,
   ClipsResult,
   ContentType,
   DeepPartial,
@@ -139,8 +140,14 @@ export const api = {
       render?: boolean;
     }
   ) => request<Clip>(`/api/projects/${id}/clips/${clipId}`, json("PATCH", patch)),
+  extendClip: (id: string, clipId: string, body: { before?: number; after?: number; render?: boolean }) =>
+    request<Clip>(`/api/projects/${id}/clips/${clipId}/extend`, json("POST", body)),
+  clipSocial: (id: string, clipId: string, ai = false) =>
+    request<SocialSuggestions>(`/api/projects/${id}/clips/${clipId}/social?ai=${ai}`),
   createClip: (id: string, body: { start: number; end: number; title?: string; render?: boolean }) =>
     request<Clip>(`/api/projects/${id}/clips`, json("POST", body)),
+  createClipsBatch: (id: string, body: { clips: { start: number; end: number; title?: string }[]; render?: boolean }) =>
+    request<Clip[]>(`/api/projects/${id}/clips/batch`, json("POST", body)),
   deleteClip: (id: string, clipId: string) =>
     request<void>(`/api/projects/${id}/clips/${clipId}`, { method: "DELETE" }),
   renderClip: (id: string, clipId: string) => request<Job>(`/api/projects/${id}/clips/${clipId}/render`, { method: "POST" }),

@@ -46,6 +46,7 @@ CONTENT_TYPE_CATEGORIES: dict[str, list[str]] = {
     "reaction": ["reaction", "surprise", "funny"],
     "comedy": ["funny", "surprise", "reaction"],
     "commentary": ["story", "surprise", "funny", "reaction"],
+    "review": ["verdict", "insight", "story", "surprise", "funny"],
     "storytelling": ["story", "surprise", "reaction"],
     "general_creator": ["reaction", "surprise", "funny", "story"],
 }
@@ -60,6 +61,12 @@ KEYWORD_LEXICON: dict[str, list[str]] = {
     "fail": ["fail", "failed", "rip", "dead", "oops", "screwed up", "mistake", "noob", "bruh", "i died"],
     "surprise": ["no way", "are you serious", "kya", "seriously", "omg", "oh my god", "wait what", "huh", "what the"],
     "reaction": ["bhai", "yaar", "dude", "bro", "what the hell", "wtf", "arey"],
+    # Information / review videos (game reviews, web-series reviews, explainers).
+    "verdict": ["my verdict", "final verdict", "overall", "in conclusion", "worth it", "worth watching", "worth buying",
+                "must watch", "must play", "skip it", "don't watch", "dont watch", "recommend", "rating", "out of 10",
+                "best part", "worst part", "biggest problem", "disappointing", "masterpiece", "overrated", "underrated"],
+    "insight": ["the reason", "here's why", "heres why", "the truth is", "did you know", "turns out", "the problem is",
+                "what most people", "the twist", "the ending", "hidden detail", "easter egg", "plot hole", "the catch"],
     "story": ["so basically", "let me tell you", "this one time", "story time", "kahani"],
 }
 

@@ -574,6 +574,19 @@ def job_process(ctx: jobs.JobContext) -> dict:
         ctx.update(0.15, "Preparing transcription...", stage="transcribe")
         do_transcribe(pid, ctx.sub(0.15, 0.70, "transcribe"), force=bool(params.get("force_transcribe")))
 
+        if ps.clip_mode == "manual":
+            # The creator marks the clips themselves: transcribe (so captions
+            # and the transcript editor work), but don't pick anything.
+            try:
+                ensure_preview(pid, ctx.sub(0.70, 1.0, "preview"))
+            except jobs.JobCancelled:
+                raise
+            except Exception as exc:
+                logger.warning("Preview proxy failed for %s: %s", pid, exc)
+            db.update_project(pid, status="ready")
+            ctx.update(1.0, "Transcribed. Mark your clips in Source & range.", stage="done")
+            return {"clips": 0, "renders_queued": 0, "message": "Manual mode: no clips were picked automatically."}
+
         ctx.update(0.70, "Analyzing audio...", stage="analyze")
         do_detect(pid, ctx.sub(0.70, 0.85, "analyze"), min_candidates=max(ps.clip_count * 2, 6))
         ctx.update(0.85, "Ranking clips...", stage="rank")

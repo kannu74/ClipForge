@@ -13,6 +13,8 @@ const CATEGORY_LABEL: Record<string, string> = {
   surprise: "😮 Surprise",
   reaction: "🎭 Reaction",
   story: "📖 Story",
+  verdict: "⚖️ Verdict",
+  insight: "💡 Insight",
   manual: "✂️ Manual",
 };
 
@@ -23,6 +25,7 @@ export default function ClipCard({
   job,
   onEdit,
   onRender,
+  onExtend,
   onDelete,
   captionsOn = true,
 }: {
@@ -33,6 +36,8 @@ export default function ClipCard({
   job?: Job;
   onEdit: () => void;
   onRender: () => void;
+  /** Pull in extra footage (seconds) before / after the clip and re-render. */
+  onExtend: (before: number, after: number) => void;
   onDelete: () => void;
 }) {
   const r = clip.render;
@@ -150,7 +155,22 @@ export default function ClipCard({
             <p className="italic text-slate-500">“{clip.transcript_excerpt.slice(0, 220)}{clip.transcript_excerpt.length > 220 ? "…" : ""}”</p>
           </div>
         )}
-        <div className="mt-auto flex flex-wrap gap-1.5 pt-1">
+        <div className="mt-auto flex flex-wrap items-center gap-1 pt-1 text-xs text-slate-400">
+          <span className="mr-1">Extend:</span>
+          {(
+            [
+              ["◀ 5s", 5, 0, "Add 5 seconds of footage before the clip"],
+              ["◀ 15s", 15, 0, "Add 15 seconds of footage before the clip"],
+              ["5s ▶", 0, 5, "Add 5 seconds of footage after the clip"],
+              ["15s ▶", 0, 15, "Add 15 seconds of footage after the clip"],
+            ] as const
+          ).map(([label, before, after, tip]) => (
+            <Button key={label} size="sm" disabled={rendering} title={`${tip} and re-render`} onClick={() => onExtend(before, after)}>
+              {label}
+            </Button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
           <Button size="sm" variant="primary" onClick={onEdit}>
             ✎ Edit
           </Button>

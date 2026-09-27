@@ -147,3 +147,33 @@ def test_manual_split_uses_given_facecam_rect(tmp_path):
     cfg = ReframeSettings(mode="split", facecam=FacecamRect(x=0.0, y=0.0, w=0.25, h=0.3), facecam_on_top=False)
     p = plan(cfg, 1920, 1080, 1080, 1920, None, tmp_path, "c3")
     assert p.mode == "split" and "[game][cam]vstack" in p.filter_complex
+
+
+def _overlaps(crop, cam):
+    gw, gh, gx, gy = crop
+    cx, cy, cw, ch = cam
+    return cx < gx + gw and cx + cw > gx and cy < gy + gh and cy + ch > gy
+
+
+def test_game_crop_excludes_facecam_for_every_position():
+    from app.reframe import _game_crop, facecam_position
+    cfg = ReframeSettings()
+    W, H = 1920, 1080
+    cases = {
+        "bottom-center": (720, 700, 480, 380),
+        "bottom-right": (1500, 720, 400, 340),
+        "top-left": (20, 20, 420, 300),
+    }
+    for label, cam in cases.items():
+        gw, gh, gx, gy, hidden = _game_crop(cfg, cam, W, H, 1080 / 1344)
+        assert hidden is None, label
+        assert not _overlaps((gw, gh, gx, gy), cam), label
+        assert 0 <= gx and gx + gw <= W + 1 and 0 <= gy and gy + gh <= H + 1, label
+        assert facecam_position(FacecamRect(x=cam[0] / W, y=cam[1] / H, w=cam[2] / W, h=cam[3] / H)) == label
+
+
+def test_game_crop_blurs_facecam_when_it_cannot_be_avoided():
+    from app.reframe import _game_crop
+    # A huge cam in the middle of the frame leaves no clean region.
+    gw, gh, gx, gy, hidden = _game_crop(ReframeSettings(), (400, 200, 1100, 700), 1920, 1080, 1080 / 1344)
+    assert hidden is not None

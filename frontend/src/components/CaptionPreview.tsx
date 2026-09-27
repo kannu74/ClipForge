@@ -9,6 +9,11 @@ const SIZE_RATIO: Record<string, number> = {
   boxed: 0.052,
   horror: 0.068,
   neon: 0.08,
+  hormozi: 0.072,
+  highlighter: 0.058,
+  typewriter: 0.054,
+  meme: 0.078,
+  cinema: 0.04,
 };
 const EMPHASIS = new Set(["insane", "crazy", "omg", "clutch", "scary", "bhoot", "wtf", "noob", "paagal", "headshot", "wow"]);
 
@@ -60,8 +65,9 @@ export default function CaptionPreview({
   const info = CAPTION_STYLE_INFO[style];
   const font = cfg.font || info.font;
   const fontPx = fixedFontPx ?? (SIZE_RATIO[style] ?? 0.06) * height * cfg.font_scale;
+  const styleHighlight: Record<string, string> = { horror: "#FF2A2A", hormozi: "#3CFF7A" };
   const highlight =
-    style === "horror" && cfg.highlight_color.toUpperCase() === "#FFE14D" ? "#FF2A2A" : cfg.highlight_color;
+    styleHighlight[style] && cfg.highlight_color.toUpperCase() === "#FFE14D" ? styleHighlight[style] : cfg.highlight_color;
   const y = captionY ?? POSITION_Y[cfg.position] ?? 0.7;
 
   const base: CSSProperties = {
@@ -76,7 +82,8 @@ export default function CaptionPreview({
   } else if (style === "neon") {
     Object.assign(base, { WebkitTextStroke: `${fontPx * 0.05}px #29F0FF`, textShadow: `0 0 ${fontPx * 0.25}px #29F0FF` });
   } else {
-    const ratio = style === "clean" ? 0.08 : style === "horror" ? 0.08 : 0.1;
+    const ratio =
+      style === "clean" ? 0.08 : style === "horror" ? 0.08 : style === "hormozi" ? 0.12 : style === "meme" ? 0.14 : style === "cinema" ? 0.02 : 0.1;
     Object.assign(base, {
       WebkitTextStroke: `${fontPx * ratio * 2}px ${cfg.outline_color}`,
       textShadow: `0 ${fontPx * 0.04}px ${fontPx * 0.06}px rgba(0,0,0,0.6)`,
@@ -114,13 +121,25 @@ export default function CaptionPreview({
           <span className="caption-stroke" style={base}>
             {lineWords.map((w, i) => {
               const txt = cfg.uppercase ? w.toUpperCase() : w;
-              const isActive = style !== "clean" && i === active;
+              const noHighlight = style === "clean" || style === "meme" || style === "cinema";
+              const isActive = !noHighlight && i === active;
+              const hidden = style === "typewriter" && i > active;
+              const boxed = style === "highlighter" && isActive;
               const spoken = style === "karaoke" && i < active;
               const emph = cfg.emphasize_keywords && EMPHASIS.has(w.toLowerCase());
               const color = isActive || spoken ? highlight : emph ? "#3CFF7A" : undefined;
               return (
                 <span key={`${lineIdx}-${i}-${isActive ? tick : 0}`}>
-                  <span className={isActive && (style === "bold_pop" || style === "horror") ? "cf-pop" : undefined} style={{ color }}>
+                  <span
+                    className={isActive && (style === "bold_pop" || style === "horror" || style === "hormozi") ? "cf-pop" : undefined}
+                    style={{
+                      color: boxed ? "#111" : color,
+                      visibility: hidden ? "hidden" : undefined,
+                      background: boxed ? highlight : undefined,
+                      WebkitTextStroke: boxed ? "0" : undefined,
+                      padding: boxed ? `0 ${fontPx * 0.12}px` : undefined,
+                    }}
+                  >
                     {txt}
                   </span>
                   {i < lineWords.length - 1 ? " " : ""}

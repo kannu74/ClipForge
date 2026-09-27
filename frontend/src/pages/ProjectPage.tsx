@@ -285,6 +285,7 @@ export default function ProjectPage() {
                 job={renderJobByClip[c.id]}
                 onEdit={() => setEditing(c)}
                 onRender={() => act(() => api.renderClip(projectId, c.id))}
+                onExtend={(before, after) => act(() => api.extendClip(projectId, c.id, { before, after, render: true }))}
                 onDelete={() => {
                   if (confirm("Delete this clip?")) act(() => api.deleteClip(projectId, c.id));
                 }}

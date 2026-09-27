@@ -25,6 +25,26 @@ export function ClipOptions({
 }) {
   return (
     <div className={cx("grid gap-5", compact ? "grid-cols-1" : "md:grid-cols-2")}>
+      <div className="md:col-span-2">
+        <Field
+          label="How clips are chosen"
+          hint={
+            value.clip_mode === "manual"
+              ? "ClipForge only transcribes the video. Open “Source & range” to mark Clip 1, Clip 2… yourself — each is rendered with the caption and framing settings below."
+              : "ClipForge finds the best moments for you. You can still add clips by hand afterwards."
+          }
+        >
+          <Segmented<"auto" | "manual">
+            size="sm"
+            value={value.clip_mode}
+            onChange={(v) => onChange({ clip_mode: v })}
+            options={[
+              { value: "auto", label: "Auto-pick clips" },
+              { value: "manual", label: "I'll mark the clips" },
+            ]}
+          />
+        </Field>
+      </div>
       <Field label="Clip length">
         <Segmented<DurationPreset>
           size="sm"
@@ -102,6 +122,9 @@ export function ClipOptions({
   );
 }
 
+// Styles designed for sentence-case text (selecting them turns UPPERCASE off).
+const LOWERCASE_STYLES = new Set<string>(["clean", "typewriter", "cinema"]);
+
 export function CaptionControls({
   value,
   onChange,
@@ -126,18 +149,18 @@ export function CaptionControls({
               <button
                 key={s}
                 type="button"
-                onClick={() => onChange({ style: s, uppercase: s === "clean" ? false : value.uppercase || value.style === "clean" })}
+                onClick={() => onChange({ style: s, uppercase: LOWERCASE_STYLES.has(s) ? false : value.uppercase || LOWERCASE_STYLES.has(value.style) })}
                 className={cx(
                   "overflow-hidden rounded-xl border p-1 text-left transition-colors",
                   value.style === s ? "border-accent ring-1 ring-accent" : "border-surface-border hover:border-slate-500"
                 )}
               >
                 <CaptionPreview
-                  cfg={{ ...value, style: s, uppercase: s === "clean" ? false : true, position: "middle", enabled: true }}
+                  cfg={{ ...value, style: s, uppercase: !LOWERCASE_STYLES.has(s), position: "middle", enabled: true }}
                   sample="no way bro"
                   height={64}
                   fill
-                  fixedFontPx={s === "neon" ? 24 : s === "clean" ? 17 : 20}
+                  fixedFontPx={s === "neon" || s === "meme" ? 24 : LOWERCASE_STYLES.has(s) ? 17 : 20}
                   animate={value.style === s}
                 />
                 <div className="px-1 pt-1 text-xs font-medium text-slate-200">{CAPTION_STYLE_INFO[s].label}</div>
@@ -160,7 +183,10 @@ export function CaptionControls({
               ]}
             />
           </Field>
-          <Field label="Script" hint="Roman turns Devanagari into Hinglish (bhai ye kya hai). Words are never translated.">
+          <Field
+            label="Hinglish"
+            hint="Roman turns Devanagari into Hinglish (bhai ye kya hai). Words are never translated."
+          >
             <Segmented
               size="sm"
               value={value.script}
@@ -199,6 +225,16 @@ export function CaptionControls({
             </div>
           </Field>
           <div className="flex flex-col justify-end gap-2">
+            <Toggle
+              checked={value.unify_spelling}
+              onChange={(v) => onChange({ unify_spelling: v })}
+              label="Unify Hinglish spelling (nahin / nhi → nahi, kyaa → kya)"
+            />
+            <Toggle
+              checked={value.mask_profanity}
+              onChange={(v) => onChange({ mask_profanity: v })}
+              label="Star out swear words (f**k) for Reels-friendly captions"
+            />
             <Toggle checked={value.uppercase} onChange={(v) => onChange({ uppercase: v })} label="UPPERCASE" />
             <Toggle checked={value.emphasize_keywords} onChange={(v) => onChange({ emphasize_keywords: v })} label="Colour hype words (insane, clutch, bhoot...)" />
           </div>

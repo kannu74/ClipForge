@@ -3,6 +3,7 @@ import { api, errorText } from "../lib/api";
 import { fmtTime } from "../lib/format";
 import type { CaptionSettings, CaptionWord, Clip, Project, ProjectSettings, ReframeSettings } from "../lib/types";
 import CaptionPreview from "./CaptionPreview";
+import PostPanel from "./PostPanel";
 import FacecamPicker from "./FacecamPicker";
 import { CaptionControls, FramingControls } from "./SettingsControls";
 import TrimTimeline from "./TrimTimeline";
@@ -34,7 +35,7 @@ export default function ClipEditor({
   const [words, setWords] = useState<CaptionWord[] | null>(null);
   const [wordsEdited, setWordsEdited] = useState(false);
   const [wordsDirty, setWordsDirty] = useState(false);
-  const [tab, setTab] = useState<"trim" | "captions" | "text" | "framing">("trim");
+  const [tab, setTab] = useState<"trim" | "captions" | "text" | "framing" | "post">("trim");
   const [view, setView] = useState<"source" | "rendered">(clip.render.status === "done" ? "rendered" : "source");
   const [current, setCurrent] = useState(clip.start);
   const [loopPlay, setLoopPlay] = useState(false);
@@ -235,6 +236,7 @@ export default function ClipEditor({
               { value: "captions", label: "Caption style" },
               { value: "text", label: "Caption text" },
               { value: "framing", label: "Framing" },
+              { value: "post", label: "Post" },
             ]}
           />
           <div className="max-h-[560px] overflow-y-auto pr-1">
@@ -341,6 +343,7 @@ export default function ClipEditor({
                 )}
               </div>
             )}
+            {tab === "post" && <PostPanel projectId={project.id} clip={clip} />}
             {tab === "framing" && (
               <div className="space-y-3">
                 <FramingControls value={ref} onChange={(p) => setRef((r) => ({ ...r, ...p }))} onPickFacecam={() => setPickFacecam(true)} narrow />

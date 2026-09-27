@@ -16,7 +16,10 @@ from pydantic import BaseModel, Field, field_validator
 
 from app import db
 
-CaptionStyleName = Literal["bold_pop", "karaoke", "clean", "boxed", "horror", "neon", "none"]
+CaptionStyleName = Literal[
+    "bold_pop", "karaoke", "clean", "boxed", "horror", "neon",
+    "hormozi", "highlighter", "typewriter", "meme", "cinema", "none",
+]
 CaptionPosition = Literal["top", "upper", "middle", "lower", "bottom"]
 CaptionScript = Literal["as_spoken", "roman", "devanagari"]
 ReframeMode = Literal["auto", "fill", "fit_blur", "track", "split", "original"]
@@ -37,6 +40,10 @@ class CaptionSettings(BaseModel):
     font: str = ""  # empty = the style's default font
     script: CaptionScript = "as_spoken"
     emphasize_keywords: bool = True
+    # Roman Hinglish: unify variant spellings ("nahin"/"nhi" -> "nahi").
+    unify_spelling: bool = False
+    # Star out swear words ("f**k") for Reels/Shorts friendliness.
+    mask_profanity: bool = False
     # Hook title shown at the top of the clip (the clip's title text).
     title_overlay: bool = False
     title_seconds: float = Field(default=3.0, ge=0, le=600)  # 0 = whole clip
@@ -85,6 +92,8 @@ class ProjectSettings(BaseModel):
     range_end: float | None = Field(default=None, ge=0)
     whisper_model: str | None = None
     language: str = ""  # "" = auto-detect
+    # "auto": ClipForge picks the clips. "manual": transcribe only, then the creator marks clips by hand.
+    clip_mode: Literal["auto", "manual"] = "auto"
     auto_render: bool = True
     include_backup_clips: bool = True
     captions: CaptionSettings = CaptionSettings()
